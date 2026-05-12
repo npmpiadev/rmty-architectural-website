@@ -88,7 +88,7 @@ export default function FAQ() {
                         <p className="text-[10px] md:text-xs tracking-[0.2em] uppercase text-neutral-500 font-bold">
                             Support & Information
                         </p>
-                        <h1 className="mt-4 text-4xl md:text-6xl font-bold tracking-tight uppercase leading-[0.92]">
+                        <h1 className="mt-4 text-4xl md:text-5xl font-bold tracking-tight uppercase leading-[0.92]">
                             Frequently Asked Questions
                         </h1>
                         <p className="mt-5 text-sm md:text-base leading-relaxed text-neutral-600 max-w-3xl">

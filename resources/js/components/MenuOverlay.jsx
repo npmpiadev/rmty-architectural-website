@@ -89,9 +89,11 @@ export default function MenuOverlay({ onClose }) {
                 <div className="justify-self-center"></div>
 
                 <div className="justify-self-end">
-                    <div className="text-2xl md:text-5xl font-medium text-black tracking-tight">
-                        RMTY
-                    </div>
+                    <img
+                        src="/images/rmty-logo-transparent.png"
+                        alt="RMTY Designs Architects"
+                        className="h-10 lg:h-16 w-auto object-contain block"
+                    />
                 </div>
             </div>
 
@@ -103,7 +105,7 @@ export default function MenuOverlay({ onClose }) {
                     {/* ALIGNMENT MATCH: Added 'pl-2' here so links align with Hero Title */}
                     <div className="md:col-span-5 pl-2">
                         <ul
-                            className="space-y-4 text-4xl md:text-7xl font-medium tracking-tighter text-black"
+                            className="space-y-4 text-3xl md:text-4xl lg:text-5xl font-medium tracking-tighter text-black"
                             onMouseLeave={() => setHoveredIndex(null)}
                         >
                             {NAV_LINKS.map((link, index) => (
@@ -141,13 +143,12 @@ export default function MenuOverlay({ onClose }) {
                         </ul>
                     </div>
 
-                    {/* RIGHT: Image Preview */}
                     <div className="hidden md:block md:col-span-7 h-[400px] relative overflow-hidden rounded-lg">
                         {hoveredIndex === null && (
                             <motion.div
                                 initial={{ opacity: 0 }}
                                 animate={{ opacity: 0.3 }}
-                                className="absolute inset-0 flex items-center justify-center text-8xl font-bold tracking-tighter text-gray-400 select-none"
+                                className="absolute inset-0 flex items-center justify-center text-3xl md:text-4xl lg:text-5xl font-bold tracking-tighter text-gray-400 select-none"
                             >
                                 MENU
                             </motion.div>
@@ -182,13 +183,10 @@ export default function MenuOverlay({ onClose }) {
                     <div>
                         <p className="mb-1 text-black">Contact</p>
                         <p>rmty.architects@gmail.com</p>
-                        <p>(+63) 923 432 0324</p>
                     </div>
                     <div>
                         <p className="mb-1 text-black">Location</p>
-                        <p>
-                            911 JOSEFINA 2 SAMPALOC, MANILA, PHILIPPINES, 1008
-                        </p>
+                        <p>MANILA, PHILIPPINES</p>
                     </div>
                     <div className="md:text-right">
                         <p>© 2026 RMTY Designs</p>

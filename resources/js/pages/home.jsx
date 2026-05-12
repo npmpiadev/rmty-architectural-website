@@ -2,7 +2,7 @@ import { useState, useEffect } from "react";
 import { Link } from "react-router-dom";
 import { motion, AnimatePresence } from "framer-motion";
 import ProjectCard from "../components/ProjectCard";
-import Navbar from "../components/navbar"; // Adjust this import path if Navbar is in a different folder
+import Navbar from "../components/Navbar"; // Adjust this import path if Navbar is in a different folder
 import Faq from "./Faq";
 
 const API_BASE = import.meta.env.VITE_API_URL ?? "";
@@ -159,7 +159,7 @@ export default function Home() {
                                 <h1 className="text-[45px] font-bold tracking-tighter uppercase leading-none">
                                     {content?.hero_title_1 || "RMTY"}
                                 </h1>
-                                <h2 className="text-[24px] font-normal tracking-tight leading-none mt-2">
+                                <h2 className="text-[30px] font-normal tracking-tight leading-none mt-2">
                                     {content?.hero_title_2 ||
                                         "Architectural Design Studio"}
                                 </h2>
@@ -176,10 +176,10 @@ export default function Home() {
             <section className="w-full bg-white py-24 [font-family:var(--font-neue)] text-black">
                 <div className="max-w-screen-2xl mx-auto px-6">
                     <div className="mb-16 max-w-2xl">
-                        <h3 className="text-3xl md:text-4xl font-bold uppercase tracking-tight mb-6">
+                        <h3 className="text-[35px] font-bold uppercase tracking-tight mb-6">
                             {content?.featured_heading || "Design With Purpose"}
                         </h3>
-                        <p className="text-gray-600 text-sm md:text-base leading-relaxed whitespace-pre-wrap">
+                        <p className="text-gray-600 text-[24px] md:text-base leading-relaxed whitespace-pre-wrap">
                             {content?.featured_description ||
                                 "RMTY approaches each project with a balance of architectural clarity and practical execution. Our featured works demonstrate how we translate site context, client goals, and technical requirements into spaces that are purposeful and enduring."}
                         </p>
@@ -244,7 +244,7 @@ export default function Home() {
             <section className="w-full bg-[#111] py-24 [font-family:var(--font-neue)] text-white">
                 <div className="max-w-screen-2xl mx-auto px-6 grid grid-cols-1 md:grid-cols-2 gap-12 items-center">
                     <div className="flex flex-col items-start justify-center h-full">
-                        <h2 className="text-4xl md:text-6xl font-normal tracking-tight mb-12">
+                        <h2 className="text-4xl md:text-5xl font-normal tracking-tight mb-12">
                             {content?.contact_heading || "Partner with us."}
                         </h2>
                         <div className="space-y-8 w-full max-w-md">
@@ -262,20 +262,12 @@ export default function Home() {
                             </div>
                             <div>
                                 <p className="text-gray-500 text-sm mb-1">
-                                    {content?.contact_phone_label || "Phone"}
-                                </p>
-                                <p className="text-lg md:text-xl font-medium">
-                                    {content?.contact_phone || "0915 896 2275"}
-                                </p>
-                            </div>
-                            <div>
-                                <p className="text-gray-500 text-sm mb-1">
                                     {content?.contact_address_label ||
                                         "Address"}
                                 </p>
                                 <p className="text-lg md:text-xl font-medium leading-relaxed whitespace-pre-wrap">
                                     {content?.contact_address ||
-                                        "911 Josefina 2 Sampaloc, Manila,\nPhilippines"}
+                                        "Manila, Philippines"}
                                 </p>
                             </div>
                         </div>
@@ -321,7 +313,7 @@ export default function Home() {
                                 to="/contact"
                                 className="group inline-flex items-center gap-3 text-2xl md:text-3xl font-normal hover:opacity-80 transition-opacity"
                             >
-                                <span className="border-b border-transparent group-hover:border-white transition-all">
+                                <span className="border-b border-transparent group-hover:border-white transition-all text-2xl">
                                     {content?.contact_cta || "Let’s Talk!"}
                                 </span>
                                 <svg

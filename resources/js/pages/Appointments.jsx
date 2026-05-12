@@ -14,7 +14,9 @@ export default function Appointments() {
     const captchaRef = useRef(null);
 
     const [captchaToken, setCaptchaToken] = useState(null);
-    const [isLoggedIn, setIsLoggedIn] = useState(!!localStorage.getItem("token"));
+    const [isLoggedIn, setIsLoggedIn] = useState(
+        !!localStorage.getItem("token"),
+    );
     const [showAuthModal, setShowAuthModal] = useState(false);
 
     const [checkingActive, setCheckingActive] = useState(false);
@@ -179,7 +181,8 @@ export default function Appointments() {
                 throw new Error(data.message || "Submission failed.");
             }
 
-            const referenceId = data?.reference_id ?? data?.data?.reference_id ?? null;
+            const referenceId =
+                data?.reference_id ?? data?.data?.reference_id ?? null;
 
             await Swal.fire({
                 icon: "success",
@@ -198,7 +201,9 @@ export default function Appointments() {
 
             navigate("/user/dashboard");
         } catch (err) {
-            setSubmitError(err.message || "An error occurred. Please try again.");
+            setSubmitError(
+                err.message || "An error occurred. Please try again.",
+            );
         } finally {
             setSubmitting(false);
         }
@@ -246,7 +251,8 @@ export default function Appointments() {
         }
 
         if (!RECAPTCHA_SITE_KEY) {
-            newErrors.captcha = "Captcha site key is missing. Please check your .env file.";
+            newErrors.captcha =
+                "Captcha site key is missing. Please check your .env file.";
         } else if (!captchaToken) {
             newErrors.captcha = "Please complete the Captcha verification.";
         }
@@ -273,7 +279,7 @@ export default function Appointments() {
                     appointmentDate,
                     appointmentTime,
                     captchaToken,
-                })
+                }),
             );
 
             setShowAuthModal(true);
@@ -299,7 +305,7 @@ export default function Appointments() {
                 appointmentTime,
                 captchaToken,
             },
-            token
+            token,
         );
     };
 
@@ -331,8 +337,8 @@ export default function Appointments() {
                     setShowAuthModal(false);
                     navigate(
                         `/auth?email=${encodeURIComponent(email)}&firstName=${encodeURIComponent(
-                            firstName
-                        )}&lastName=${encodeURIComponent(lastName)}`
+                            firstName,
+                        )}&lastName=${encodeURIComponent(lastName)}`,
                     );
                 }}
             />
@@ -340,17 +346,11 @@ export default function Appointments() {
             <div className="mx-auto max-w-screen-2xl px-6 pt-32 pb-16 md:pt-48 border-b border-neutral-300">
                 <div className="flex flex-col gap-8 md:gap-16">
                     <div className="grid grid-cols-1 lg:grid-cols-12 gap-12 lg:items-end">
-                        <h1 className="lg:col-span-8 text-[3.5rem] md:text-[6rem] lg:text-[6.5rem] leading-[0.85] font-bold tracking-tighter uppercase">
-                            Schedule <br /> A Session.
+                        <h1 className="lg:col-span-8 text-5xl leading-[0.85] font-bold tracking-tighter uppercase">
+                            Schedule A Session.
                         </h1>
 
-                        <div className="lg:col-span-4 lg:pb-3 border-l border-neutral-300 pl-6 md:pl-10">
-                            <p className="text-[15px] font-medium leading-relaxed text-neutral-600">
-                                Reserve a formal consultation with the RMTY team to define your vision,
-                                clarify project scope, and align design direction with your site and budget
-                                requirements.
-                            </p>
-                        </div>
+                       
                     </div>
                 </div>
             </div>
@@ -358,7 +358,10 @@ export default function Appointments() {
             <div className="mx-auto max-w-screen-2xl px-6 py-16 md:py-24">
                 <div className="grid grid-cols-1 lg:grid-cols-12 gap-16 lg:items-start">
                     <div className="lg:col-span-7">
-                        <form onSubmit={handleAppointmentSubmit} className="w-full">
+                        <form
+                            onSubmit={handleAppointmentSubmit}
+                            className="w-full"
+                        >
                             <div className="mb-20">
                                 <div className="border-b-2 border-black pb-4 mb-10 flex justify-between items-end">
                                     <h2 className="text-xl md:text-2xl font-bold tracking-tight uppercase">
@@ -455,7 +458,8 @@ export default function Appointments() {
                                 <div className="w-full">
                                     <label
                                         className={`block text-[11px] font-bold tracking-[0.15em] uppercase mb-6 transition-colors ${
-                                            errors.appointmentDate || errors.appointmentTime
+                                            errors.appointmentDate ||
+                                            errors.appointmentTime
                                                 ? "text-red-500"
                                                 : "text-neutral-800"
                                         }`}
@@ -471,9 +475,11 @@ export default function Appointments() {
                                         unavailableSlots={unavailableSlots}
                                     />
 
-                                    {(errors.appointmentDate || errors.appointmentTime) && (
+                                    {(errors.appointmentDate ||
+                                        errors.appointmentTime) && (
                                         <p className="text-[10px] tracking-wide text-red-500 mt-4 uppercase font-bold">
-                                            {errors.appointmentDate || errors.appointmentTime}
+                                            {errors.appointmentDate ||
+                                                errors.appointmentTime}
                                         </p>
                                     )}
                                 </div>
@@ -504,7 +510,8 @@ export default function Appointments() {
                                 ) : (
                                     <div className="border border-red-500 bg-red-50 px-4 py-3">
                                         <p className="text-[11px] tracking-wide text-red-500 uppercase font-bold">
-                                            Missing VITE_RECAPTCHA_SITE_KEY in .env file.
+                                            Missing VITE_RECAPTCHA_SITE_KEY in
+                                            .env file.
                                         </p>
                                     </div>
                                 )}
@@ -513,7 +520,10 @@ export default function Appointments() {
                                     {errors.captcha && (
                                         <motion.p
                                             initial={{ opacity: 0, height: 0 }}
-                                            animate={{ opacity: 1, height: "auto" }}
+                                            animate={{
+                                                opacity: 1,
+                                                height: "auto",
+                                            }}
                                             exit={{ opacity: 0, height: 0 }}
                                             className="text-[10px] tracking-wide text-red-500 mt-2 overflow-hidden uppercase font-bold"
                                         >
@@ -543,7 +553,9 @@ export default function Appointments() {
                                 disabled={submitting}
                                 className="rounded-full border border-black px-14 py-4 text-[11px] font-bold tracking-[0.2em] text-black uppercase transition-all hover:bg-black hover:text-white focus:outline-none disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
                             >
-                                {submitting ? "PROCESSING..." : "REQUEST SCHEDULE"}
+                                {submitting
+                                    ? "PROCESSING..."
+                                    : "REQUEST SCHEDULE"}
                             </button>
                         </form>
                     </div>
@@ -587,31 +599,35 @@ function OngoingConsultationBlock({ consultation, onDashboard }) {
     const s = statusColors[consultation?.status] ?? statusColors.pending;
 
     const formattedDate = consultation?.consultation_date
-        ? new Date(String(consultation.consultation_date).replace(" ", "T")).toLocaleDateString(
-              "en-US",
-              {
-                  weekday: "long",
-                  year: "numeric",
-                  month: "long",
-                  day: "numeric",
-              }
-          )
+        ? new Date(
+              String(consultation.consultation_date).replace(" ", "T"),
+          ).toLocaleDateString("en-US", {
+              weekday: "long",
+              year: "numeric",
+              month: "long",
+              day: "numeric",
+          })
         : "To be confirmed";
 
     const formattedTime = consultation?.consultation_date
-        ? new Date(String(consultation.consultation_date).replace(" ", "T")).toLocaleTimeString(
-              "en-US",
-              {
-                  hour: "numeric",
-                  minute: "2-digit",
-                  hour12: true,
-              }
-          )
+        ? new Date(
+              String(consultation.consultation_date).replace(" ", "T"),
+          ).toLocaleTimeString("en-US", {
+              hour: "numeric",
+              minute: "2-digit",
+              hour12: true,
+          })
         : "";
 
     const rows = [
         ...(consultation?.reference_id
-            ? [{ label: "Reference No.", value: consultation.reference_id, mono: true }]
+            ? [
+                  {
+                      label: "Reference No.",
+                      value: consultation.reference_id,
+                      mono: true,
+                  },
+              ]
             : []),
         { label: "Project Type", value: consultation?.project_type ?? "—" },
         { label: "Location", value: consultation?.location ?? "—" },
@@ -635,7 +651,8 @@ function OngoingConsultationBlock({ consultation, onDashboard }) {
 
                     <div className="lg:col-span-4 lg:pb-3 border-l border-neutral-300 pl-6 md:pl-10">
                         <p className="text-[15px] font-medium leading-relaxed text-neutral-600">
-                            Reserve a formal consultation with our principal architects.
+                            Reserve a formal consultation with our principal
+                            architects.
                         </p>
                     </div>
                 </div>
@@ -663,9 +680,11 @@ function OngoingConsultationBlock({ consultation, onDashboard }) {
                             </div>
 
                             <p className="text-[14px] leading-relaxed text-neutral-600 mb-10">
-                                You currently have an ongoing consultation request. A new appointment
-                                cannot be scheduled until your current one is resolved. Visit your
-                                dashboard to view details, track its status, or contact us for assistance.
+                                You currently have an ongoing consultation
+                                request. A new appointment cannot be scheduled
+                                until your current one is resolved. Visit your
+                                dashboard to view details, track its status, or
+                                contact us for assistance.
                             </p>
 
                             <div className="border border-neutral-200 bg-white mb-10">
@@ -676,24 +695,34 @@ function OngoingConsultationBlock({ consultation, onDashboard }) {
                                 </div>
 
                                 <div className="divide-y divide-neutral-100">
-                                    {rows.map(({ label, value, highlight, color, mono }) => (
-                                        <div
-                                            key={label}
-                                            className="flex justify-between items-center px-6 py-4"
-                                        >
-                                            <span className="text-[11px] font-bold tracking-[0.1em] uppercase text-neutral-400">
-                                                {label}
-                                            </span>
-
-                                            <span
-                                                className={`text-[13px] font-semibold ${
-                                                    highlight ? color : "text-neutral-800"
-                                                } ${mono ? "font-mono tracking-wider" : ""}`}
+                                    {rows.map(
+                                        ({
+                                            label,
+                                            value,
+                                            highlight,
+                                            color,
+                                            mono,
+                                        }) => (
+                                            <div
+                                                key={label}
+                                                className="flex justify-between items-center px-6 py-4"
                                             >
-                                                {value}
-                                            </span>
-                                        </div>
-                                    ))}
+                                                <span className="text-[11px] font-bold tracking-[0.1em] uppercase text-neutral-400">
+                                                    {label}
+                                                </span>
+
+                                                <span
+                                                    className={`text-[13px] font-semibold ${
+                                                        highlight
+                                                            ? color
+                                                            : "text-neutral-800"
+                                                    } ${mono ? "font-mono tracking-wider" : ""}`}
+                                                >
+                                                    {value}
+                                                </span>
+                                            </div>
+                                        ),
+                                    )}
                                 </div>
                             </div>
 
@@ -758,8 +787,9 @@ function AuthRequiredModal({ isOpen, onClose, onAction }) {
                         </h2>
 
                         <p className="text-sm leading-relaxed text-neutral-500 mb-10 max-w-[280px]">
-                            Your booking details are saved. Sign in or create a profile — your appointment
-                            will be submitted automatically.
+                            Your booking details are saved. Sign in or create a
+                            profile — your appointment will be submitted
+                            automatically.
                         </p>
 
                         <div className="flex flex-col w-full gap-2">
@@ -825,7 +855,11 @@ function UnderlineInput({
             </label>
 
             {options ? (
-                <select value={value} onChange={handleChange} className={inputClass}>
+                <select
+                    value={value}
+                    onChange={handleChange}
+                    className={inputClass}
+                >
                     <option value="" disabled hidden>
                         Select {label.replace("*", "")}
                     </option>
@@ -862,7 +896,12 @@ function UnderlineInput({
     );
 }
 
-function AppointmentMessageField({ label, value, onValueChange, externalError }) {
+function AppointmentMessageField({
+    label,
+    value,
+    onValueChange,
+    externalError,
+}) {
     const hasError = !!externalError;
 
     return (

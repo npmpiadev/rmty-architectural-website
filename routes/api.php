@@ -88,6 +88,12 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::post('/admin/contact-content', [ContactPageContentController::class, 'store']);
 });
 Route::prefix('client')->group(function () {
+    Route::post('/register', [AuthController::class, 'register']);
+    Route::post('/verify-otp', [AuthController::class, 'verifyOtp']);
+    Route::post('/login', [AuthController::class, 'login'])
+        ->middleware('throttle:10,1');
+    Route::post('/logout', [AuthController::class, 'logout'])->middleware('auth:sanctum');
+
     Route::post('/forgot-password',   [AuthController::class, 'forgotPassword'])
         ->middleware('throttle:5,1');   // 5 requests/min per IP
  
@@ -97,14 +103,6 @@ Route::prefix('client')->group(function () {
     Route::post('/reset-password',    [AuthController::class, 'resetPassword'])
         ->middleware('throttle:10,1');
 });
-
-Route::post('/register', [AuthController::class, 'register']);
-Route::post('/verify-otp', [AuthController::class, 'verifyOtp']);
-Route::post('/login', [AuthController::class, 'login'])
-    ->middleware('throttle:10,1');
-Route::post('/logout', [AuthController::class, 'logout']);
-
-
 
 // Consultation booking — public (contact form)
 Route::post('/inquiries', [InquiryController::class, 'store']);
@@ -191,11 +189,6 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::get('/admin/facebook/status', [FacebookOAuthController::class, 'status']);
     Route::delete('/admin/facebook/disconnect', [FacebookOAuthController::class, 'disconnect']);
 });
-Route::post('/register', [AuthController::class, 'register']);
-Route::post('/login', [AuthController::class, 'login']);
-
-Route::middleware('auth:sanctum')->post('/logout', [AuthController::class, 'logout']);
-
 // ── Webhook Routes (public — verified by platform signatures) ──
 Route::prefix('webhooks')->middleware('throttle:120,1')->group(function () {
     Route::post('/gmail', [GmailWebhookController::class, 'handle']);

@@ -27,44 +27,44 @@
             </p>
 
             <p style="margin: 0 0 30px 0; font-size: 14px; line-height: 1.6; color: #525252;">
-                Thanks for creating a client profile with <strong>RMTY Architects</strong>. 
+                Thanks for creating a client profile with <strong>RMTY ADS</strong>. 
                 Use the One-Time Password below to verify your email address and activate your account.
             </p>
 
             {{-- OTP Box --}}
-            <div style="background-color: #000000; border-radius: 16px; padding: 36px 30px; text-align: center; margin-bottom: 30px;">
-                <p style="margin: 0 0 14px 0; font-size: 10px; font-weight: 700; letter-spacing: 0.2em; color: #737373; text-transform: uppercase;">
-                    Your Verification Code
-                </p>
+<div style="background-color: #000000; border-radius: 16px; padding: 36px 30px; text-align: center; margin-bottom: 30px;">
+    <p style="margin: 0 0 14px 0; font-size: 10px; font-weight: 700; letter-spacing: 0.2em; color: #737373; text-transform: uppercase;">
+        Your Verification Code
+    </p>
 
-                {{-- Individual digit boxes --}}
-                <div style="display: inline-flex; gap: 8px; margin-bottom: 16px;">
-                    @foreach(str_split($otp) as $digit)
-                    <div style="
-                        width: 44px;
-                        height: 56px;
-                        background-color: #1a1a1a;
-                        border: 1px solid #333333;
-                        border-radius: 8px;
-                        display: inline-flex;
-                        align-items: center;
-                        justify-content: center;
-                        font-size: 28px;
-                        font-weight: 900;
-                        color: #ffffff;
-                        letter-spacing: 0;
-                        font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
-                        line-height: 56px;
-                        text-align: center;
-                        vertical-align: middle;
-                    ">{{ $digit }}</div>
-                    @endforeach
-                </div>
+    {{-- Individual digit boxes --}}
+    <!-- Removed inline-flex and gap, relying on standard text-align instead -->
+    <div style="text-align: center; margin-bottom: 16px;">
+        @foreach(str_split($otp) as $digit)
+        <div style="
+            display: inline-block; /* Replaced inline-flex for email compatibility */
+            width: 44px;
+            height: 56px;
+            background-color: #1a1a1a;
+            border: 1px solid #333333;
+            border-radius: 8px;
+            font-size: 28px;
+            font-weight: 900;
+            color: #ffffff;
+            font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+            line-height: 56px; /* Perfectly centers the text vertically */
+            text-align: center; /* Perfectly centers the text horizontally */
+            margin: 0 4px; /* Replaces the 'gap' property from the parent */
+            vertical-align: middle;
+            box-sizing: border-box;
+        ">{{ $digit }}</div>
+        @endforeach
+    </div>
 
-                <p style="margin: 0; font-size: 11px; font-weight: 600; color: #ef4444; letter-spacing: 0.05em; text-transform: uppercase;">
-                    ⏱ Expires in 5 minutes
-                </p>
-            </div>
+    <p style="margin: 0; font-size: 11px; font-weight: 600; color: #ef4444; letter-spacing: 0.05em; text-transform: uppercase;">
+        ⏱ Expires in 5 minutes
+    </p>
+</div>
 
             <p style="margin: 0 0 30px 0; font-size: 14px; line-height: 1.6; color: #525252;">
                 Enter this code on the verification screen to complete your registration and book appointments with us.

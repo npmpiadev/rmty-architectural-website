@@ -1,349 +1,383 @@
-import React, { useState, useEffect } from "react";
+import React, { useState } from "react";
 import { Link } from "react-router-dom";
 import { motion, AnimatePresence } from "framer-motion";
-import api from "../api/axios";
-import {
-    validateEmail,
-    validateStrongPassword,
-    PASSWORD_HINT,
-    EMAIL_HINT,
-} from "../lib/validation";
+import axios from "../api/axios";
 
 export default function ClientAuthForm({
-    prefillEmail = "",
-    prefillFirstName = "",
-    prefillLastName = "",
     onSuccess,
+    prefillEmail     = "",
+    prefillFirstName = "",
+    prefillLastName  = "",
 }) {
-    const [isLogin, setIsLogin] = useState(true);
-
-    const [firstName, setFirstName] = useState(prefillFirstName);
-    const [lastName, setLastName] = useState(prefillLastName);
-    const [email, setEmail] = useState(prefillEmail);
-    const [password, setPassword] = useState("");
-
+    const [mode, setMode] = useState("login"); // login | register | otp
+    const [loading, setLoading] = useState(false);
     const [showPassword, setShowPassword] = useState(false);
-    const [error, setError] = useState("");
-    const [fieldErrors, setFieldErrors] = useState({
-        firstName: "",
-        lastName: "",
-        email: "",
-        password: "",
+
+    const [formData, setFormData] = useState({
+        firstName: prefillFirstName,
+        lastName:  prefillLastName,
+        email:     prefillEmail,
+        password:  "",
     });
 
-    // Ensure state updates if props change after initial mount
-    useEffect(() => {
-        if (prefillEmail) setEmail(prefillEmail);
-        if (prefillFirstName) setFirstName(prefillFirstName);
-        if (prefillLastName) setLastName(prefillLastName);
-    }, [prefillEmail, prefillFirstName, prefillLastName]);
+    const [otpValue, setOtpValue] = useState("");
+    const [errors,   setErrors]   = useState({});
+
+    const handleChange = (field, value) => {
+        setFormData((prev) => ({ ...prev, [field]: value }));
+        setErrors((prev) => {
+            const next = { ...prev };
+            delete next[field];
+            delete next[toSnakeCase(field)];
+            delete next.general;
+            return next;
+        });
+    };
+
+    const toSnakeCase = (str) =>
+        str.replace(/[A-Z]/g, (c) => `_${c.toLowerCase()}`);
+
+    // Map Laravel snake_case validation errors → camelCase state keys
+    const normalizeErrors = (apiErrors) => {
+        const map = {
+            first_name: "firstName",
+            last_name:  "lastName",
+            email:      "email",
+            password:   "password",
+        };
+        const normalized = {};
+        for (const [key, val] of Object.entries(apiErrors)) {
+            const frontendKey = map[key] ?? key;
+            normalized[frontendKey] = Array.isArray(val) ? val[0] : val;
+        }
+        return normalized;
+    };
+
+    const toggleMode = () => {
+        setMode((prev) => (prev === "login" ? "register" : "login"));
+        setErrors({});
+        setOtpValue("");
+    };
 
     const handleSubmit = async (e) => {
         e.preventDefault();
-        setError("");
-        setFieldErrors({
-            firstName: "",
-            lastName: "",
-            email: "",
-            password: "",
-        });
-
-        // Validations
-        let hasError = false;
-        const newFieldErrors = {
-            firstName: "",
-            lastName: "",
-            email: "",
-            password: "",
-        };
-
-        if (!isLogin) {
-            if (!firstName.trim()) {
-                newFieldErrors.firstName = "First name is required.";
-                hasError = true;
-            }
-            if (!lastName.trim()) {
-                newFieldErrors.lastName = "Last name is required.";
-                hasError = true;
-            }
-        }
-
-        const emailErr = validateEmail(email);
-        const passwordErr = validateStrongPassword(password);
-
-        if (emailErr || passwordErr) {
-            newFieldErrors.email = emailErr || "";
-            newFieldErrors.password = passwordErr || "";
-            hasError = true;
-        }
-
-        if (hasError) {
-            setFieldErrors(newFieldErrors);
-            return;
-        }
+        setLoading(true);
+        setErrors({});
 
         try {
-            // Adjust these endpoints to match your actual backend client routes
-            const endpoint = isLogin ? "/client/login" : "/client/register";
-            const payload = isLogin
-                ? { email: email.trim(), password }
-                : {
-                      firstName: firstName.trim(),
-                      lastName: lastName.trim(),
-                      email: email.trim(),
-                      password,
-                  };
+            if (mode === "login") {
+                const res = await axios.post("/client/login", {
+                    email:    formData.email,
+                    password: formData.password,
+                });
 
-            const res = await api.post(endpoint, payload);
+                localStorage.setItem("token", res.data.token);
+                localStorage.setItem("user", JSON.stringify(res.data.user));
 
-            // Save tokens (adjust key names based on your backend logic)
-            localStorage.setItem("client_token", res.data.token);
-            if (res.data.user?.id) {
-                localStorage.setItem("clientId", res.data.user.id);
+                if (typeof onSuccess === "function") onSuccess();
+                return;
             }
 
-            // Trigger the success redirect handled in ClientAuthPage
-            if (onSuccess) onSuccess();
+            if (mode === "register") {
+                await axios.post("/client/register", {
+                    first_name: formData.firstName,
+                    last_name:  formData.lastName,
+                    email:      formData.email,
+                    password:   formData.password,
+                });
+
+                setMode("otp");
+                setOtpValue("");
+                return;
+            }
+
         } catch (err) {
-            setError(
-                err.response?.data?.message ||
-                    err.response?.data?.errors?.email?.[0] ||
-                    err.response?.data?.errors?.password?.[0] ||
-                    (isLogin ? "Login failed" : "Registration failed"),
-            );
+            const status  = err.response?.status;
+            const data    = err.response?.data ?? {};
+            const apiMessage = data.message || data.error || "Something went wrong.";
+            const apiErrors  = data.errors;
+
+            if (status === 403 && data.requires_otp) {
+                setFormData((prev) => ({ ...prev, email: data.email ?? prev.email }));
+                setMode("otp");
+                setOtpValue("");
+                return;
+            }
+
+            if (apiErrors && typeof apiErrors === "object") {
+                setErrors(normalizeErrors(apiErrors));
+            } else {
+                setErrors({ general: apiMessage });
+            }
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    const handleVerifyOtp = async () => {
+        setLoading(true);
+        setErrors({});
+
+        try {
+            const res = await axios.post("/client/verify-otp", {
+                email: formData.email,
+                otp:   otpValue,
+            });
+
+            localStorage.setItem("token", res.data.token);
+            localStorage.setItem("user", JSON.stringify(res.data.user));
+
+            if (typeof onSuccess === "function") onSuccess();
+
+        } catch (err) {
+            setErrors({
+                otp:
+                    err.response?.data?.message ||
+                    err.response?.data?.error ||
+                    "Invalid or expired OTP.",
+            });
+        } finally {
+            setLoading(false);
         }
     };
 
     return (
-        <form
-            className="[font-family:var(--font-neue)] w-full max-w-2xl flex flex-col gap-7 mx-auto"
-            onSubmit={handleSubmit}
-            action="javascript:void(0)"
-        >
-            {/* Top Level Error */}
-            <AnimatePresence>
-                {error && (
-                    <motion.div
-                        initial={{ opacity: 0, height: 0 }}
-                        animate={{ opacity: 1, height: "auto" }}
-                        exit={{ opacity: 0, height: 0 }}
-                        className="overflow-hidden"
-                    >
-                        <p className="text-[10px] tracking-wide text-red-500 uppercase border border-red-500/20 bg-red-500/5 p-3">
-                            {error}
-                        </p>
-                    </motion.div>
-                )}
-            </AnimatePresence>
+        <div className="[font-family:var(--font-neue)] w-full max-w-2xl mx-auto">
+            <form onSubmit={handleSubmit} className="flex flex-col gap-7">
+                <AnimatePresence mode="wait">
 
-            {/* NAME FIELDS (Only show if registering) */}
-            <AnimatePresence>
-                {!isLogin && (
-                    <motion.div
-                        initial={{ opacity: 0, height: 0 }}
-                        animate={{ opacity: 1, height: "auto" }}
-                        exit={{ opacity: 0, height: 0 }}
-                        className="flex gap-4 overflow-hidden"
-                    >
-                        {/* First Name */}
-                        <div className="relative group w-1/2">
-                            <label className="flex justify-between items-end text-[10px] tracking-widest text-gray-500 uppercase mb-1">
-                                <span>First Name</span>
-                            </label>
-                            <input
-                                type="text"
-                                placeholder="First Name"
-                                value={firstName}
-                                onChange={(e) => {
-                                    setFirstName(e.target.value);
-                                    setFieldErrors((prev) => ({
-                                        ...prev,
-                                        firstName: "",
-                                    }));
-                                }}
-                                className={`w-full bg-transparent border-b px-0 py-3 text-base outline-none transition-colors rounded-none placeholder:text-gray-300
-                                    ${fieldErrors.firstName ? "border-red-500 text-red-500" : "border-gray-300 focus:border-black text-black"}
-                                `}
+                    {/* ── OTP Screen ── */}
+                    {mode === "otp" ? (
+                        <motion.div
+                            key="otp-fields"
+                            initial={{ opacity: 0, x: 10 }}
+                            animate={{ opacity: 1, x: 0 }}
+                            exit={{ opacity: 0, x: -10 }}
+                            transition={{ duration: 0.3 }}
+                            className="flex flex-col gap-7"
+                        >
+                            <p className="text-[10px] text-gray-500 uppercase tracking-widest leading-relaxed">
+                                A verification code was sent to{" "}
+                                <strong className="text-black">{formData.email}</strong>
+                            </p>
+
+                            <FormInput
+                                label="OTP Code"
+                                value={otpValue}
+                                onChange={setOtpValue}
+                                error={errors.otp}
                             />
-                            {fieldErrors.firstName && (
-                                <p className="text-[10px] tracking-wide text-red-500 mt-2">
-                                    {fieldErrors.firstName}
+
+                            {errors.general && (
+                                <p className="text-[10px] tracking-wide text-red-500 uppercase">
+                                    {errors.general}
                                 </p>
                             )}
-                        </div>
 
-                        {/* Last Name */}
-                        <div className="relative group w-1/2">
-                            <label className="flex justify-between items-end text-[10px] tracking-widest text-gray-500 uppercase mb-1">
-                                <span>Last Name</span>
-                            </label>
-                            <input
-                                type="text"
-                                placeholder="Last Name"
-                                value={lastName}
-                                onChange={(e) => {
-                                    setLastName(e.target.value);
-                                    setFieldErrors((prev) => ({
-                                        ...prev,
-                                        lastName: "",
-                                    }));
-                                }}
-                                className={`w-full bg-transparent border-b px-0 py-3 text-base outline-none transition-colors rounded-none placeholder:text-gray-300
-                                    ${fieldErrors.lastName ? "border-red-500 text-red-500" : "border-gray-300 focus:border-black text-black"}
-                                `}
+                            <button
+                                type="button"
+                                onClick={handleVerifyOtp}
+                                disabled={loading}
+                                className="mt-6 w-full rounded-none bg-black py-4 text-[10px] font-bold tracking-[0.25em] text-white uppercase transition-all hover:bg-neutral-800 cursor-pointer active:scale-[0.98] disabled:opacity-50"
+                            >
+                                {loading ? "Processing..." : "Verify & Continue"}
+                            </button>
+
+                            <button
+                                type="button"
+                                onClick={() => { setMode("register"); setErrors({}); }}
+                                className="text-[10px] font-medium tracking-[0.1em] text-gray-400 hover:text-black uppercase transition-colors cursor-pointer text-center"
+                            >
+                                ← Back to registration
+                            </button>
+                        </motion.div>
+
+                    /* ── Login Screen ── */
+                    ) : mode === "login" ? (
+                        <motion.div
+                            key="login-fields"
+                            initial={{ opacity: 0, x: -10 }}
+                            animate={{ opacity: 1, x: 0 }}
+                            exit={{ opacity: 0, x: 10 }}
+                            transition={{ duration: 0.3 }}
+                            className="flex flex-col gap-7"
+                        >
+                            <FormInput
+                                label="Email"
+                                type="email"
+                                value={formData.email}
+                                onChange={(val) => handleChange("email", val)}
+                                error={errors.email}
                             />
-                            {fieldErrors.lastName && (
-                                <p className="text-[10px] tracking-wide text-red-500 mt-2">
-                                    {fieldErrors.lastName}
-                                </p>
-                            )}
-                        </div>
-                    </motion.div>
-                )}
-            </AnimatePresence>
+                            <FormInput
+                                label="Password"
+                                type={showPassword ? "text" : "password"}
+                                value={formData.password}
+                                onChange={(val) => handleChange("password", val)}
+                                error={errors.password}
+                                showPasswordToggle
+                                onTogglePassword={() => setShowPassword(!showPassword)}
+                                isPasswordVisible={showPassword}
+                                forgotLink="/client/forgot-password"
+                            />
+                        </motion.div>
 
-            {/* EMAIL */}
-            <div className="relative group">
-                <label className="flex justify-between items-end text-[10px] tracking-widest text-gray-500 uppercase mb-1">
-                    <span>Email</span>
-                </label>
+                    /* ── Register Screen ── */
+                    ) : (
+                        <motion.div
+                            key="register-fields"
+                            initial={{ opacity: 0, x: 10 }}
+                            animate={{ opacity: 1, x: 0 }}
+                            exit={{ opacity: 0, x: -10 }}
+                            transition={{ duration: 0.3 }}
+                            className="flex flex-col gap-7"
+                        >
+                            <div className="flex gap-4">
+                                <div className="w-1/2">
+                                    <FormInput
+                                        label="First Name"
+                                        value={formData.firstName}
+                                        onChange={(val) => handleChange("firstName", val)}
+                                        error={errors.firstName}
+                                    />
+                                </div>
+                                <div className="w-1/2">
+                                    <FormInput
+                                        label="Last Name"
+                                        value={formData.lastName}
+                                        onChange={(val) => handleChange("lastName", val)}
+                                        error={errors.lastName}
+                                    />
+                                </div>
+                            </div>
+                            <FormInput
+                                label="Email"
+                                type="email"
+                                value={formData.email}
+                                onChange={(val) => handleChange("email", val)}
+                                error={errors.email}
+                            />
+                            <FormInput
+                                label="Password"
+                                type={showPassword ? "text" : "password"}
+                                value={formData.password}
+                                onChange={(val) => handleChange("password", val)}
+                                error={errors.password}
+                                showPasswordToggle
+                                onTogglePassword={() => setShowPassword(!showPassword)}
+                                isPasswordVisible={showPassword}
+                            />
+                        </motion.div>
+                    )}
+                </AnimatePresence>
+
+                {/* General error */}
+                <AnimatePresence>
+                    {errors.general && mode !== "otp" && (
+                        <motion.div
+                            initial={{ opacity: 0, height: 0 }}
+                            animate={{ opacity: 1, height: "auto" }}
+                            exit={{ opacity: 0, height: 0 }}
+                            className="overflow-hidden"
+                        >
+                            <p className="text-[10px] tracking-wide text-red-500 uppercase border border-red-500/20 bg-red-500/5 p-3">
+                                {errors.general}
+                            </p>
+                        </motion.div>
+                    )}
+                </AnimatePresence>
+
+                {/* Submit + toggle — hidden on OTP screen */}
+                {mode !== "otp" && (
+                    <div className="flex flex-col gap-6">
+                        <button
+                            type="submit"
+                            disabled={loading}
+                            className="mt-6 w-full rounded-none bg-black py-4 text-[10px] font-bold tracking-[0.25em] text-white uppercase transition-all hover:bg-neutral-800 cursor-pointer active:scale-[0.98] disabled:opacity-50"
+                        >
+                            {loading
+                                ? "Processing..."
+                                : mode === "login"
+                                ? "Sign In"
+                                : "Create Profile"}
+                        </button>
+
+                        <div className="text-center">
+                            <button
+                                type="button"
+                                onClick={toggleMode}
+                                className="text-[10px] font-medium tracking-[0.1em] text-gray-400 hover:text-black uppercase transition-colors cursor-pointer"
+                            >
+                                {mode === "login"
+                                    ? "Don't have an account? Sign up"
+                                    : "Already have an account? Sign in"}
+                            </button>
+                        </div>
+                    </div>
+                )}
+            </form>
+        </div>
+    );
+}
+
+/* ── Form Input Component (Styled to match Admin AuthForm) ────────────────── */
+function FormInput({ 
+    label, 
+    type = "text", 
+    value, 
+    onChange, 
+    error, 
+    showPasswordToggle, 
+    onTogglePassword, 
+    isPasswordVisible,
+    forgotLink
+}) {
+    return (
+        <div className="relative group">
+            <label className="flex justify-between items-end text-[10px] tracking-widest text-gray-500 uppercase mb-1">
+                <span>{label}</span>
+                {forgotLink && (
+                    <Link
+                        to={forgotLink}
+                        className="text-[10px] text-gray-400 hover:text-black transition-colors"
+                    >
+                        Forgot?
+                    </Link>
+                )}
+            </label>
+            <div className="relative">
                 <input
-                    type="text"
-                    inputMode="email"
-                    placeholder="Enter your email"
-                    maxLength={50}
-                    value={email}
-                    onChange={(e) => {
-                        setEmail(e.target.value);
-                        setFieldErrors((prev) => ({ ...prev, email: "" }));
-                    }}
+                    type={type}
+                    value={value}
+                    onChange={(e) => onChange(e.target.value)}
+                    placeholder={`Enter your ${label.toLowerCase()}`}
                     className={`w-full bg-transparent border-b px-0 py-3 text-base outline-none transition-colors rounded-none placeholder:text-gray-300
-                        ${fieldErrors.email ? "border-red-500 text-red-500" : "border-gray-300 focus:border-black text-black"}
+                        ${error ? "border-red-500 text-red-500" : "border-gray-300 focus:border-black text-black"}
                     `}
                 />
-
-                <AnimatePresence mode="wait">
-                    {fieldErrors.email ? (
-                        <motion.p
-                            key="error"
-                            initial={{ opacity: 0, height: 0 }}
-                            animate={{ opacity: 1, height: "auto" }}
-                            exit={{ opacity: 0, height: 0 }}
-                            className="text-[10px] tracking-wide text-red-500 mt-2 overflow-hidden"
-                        >
-                            {fieldErrors.email}
-                        </motion.p>
-                    ) : (
-                        <motion.p
-                            key="hint"
-                            className="mt-2 text-[10px] text-gray-400"
-                        >
-                            {EMAIL_HINT}
-                        </motion.p>
-                    )}
-                </AnimatePresence>
-            </div>
-
-            {/* PASSWORD */}
-            <div className="relative group">
-                <label className="flex justify-between items-end text-[10px] tracking-widest text-gray-500 uppercase mb-1">
-                    <span>Password</span>
-                    {isLogin && (
-                        <Link
-                            to="/forgot-password"
-                            className="text-[10px] text-gray-400 hover:text-black transition-colors"
-                        >
-                            Forgot?
-                        </Link>
-                    )}
-                </label>
-
-                {/* Input Wrapper for positioning the eye icon */}
-                <div className="relative">
-                    <input
-                        type={showPassword ? "text" : "password"}
-                        placeholder="Enter your password"
-                        maxLength={64}
-                        value={password}
-                        onChange={(e) => {
-                            setPassword(e.target.value);
-                            setFieldErrors((prev) => ({
-                                ...prev,
-                                password: "",
-                            }));
-                        }}
-                        className={`w-full bg-transparent border-b px-0 pr-8 py-3 text-base outline-none transition-colors rounded-none placeholder:text-gray-300
-                            ${fieldErrors.password ? "border-red-500 text-red-500" : "border-gray-300 focus:border-black text-black"}
-                        `}
-                    />
-
-                    {/* Toggle Password Visibility Button */}
+                {showPasswordToggle && (
                     <button
                         type="button"
-                        onClick={() => setShowPassword(!showPassword)}
+                        onClick={onTogglePassword}
                         className="absolute right-0 top-1/2 -translate-y-1/2 text-gray-400 hover:text-black transition-colors outline-none cursor-pointer"
-                        aria-label={
-                            showPassword ? "Hide password" : "Show password"
-                        }
                     >
-                        {showPassword ? <EyeOffIcon /> : <EyeIcon />}
+                        {isPasswordVisible ? <EyeOffIcon /> : <EyeIcon />}
                     </button>
-                </div>
-
-                <AnimatePresence mode="wait">
-                    {fieldErrors.password ? (
-                        <motion.p
-                            key="error"
-                            initial={{ opacity: 0, height: 0 }}
-                            animate={{ opacity: 1, height: "auto" }}
-                            exit={{ opacity: 0, height: 0 }}
-                            className="text-[10px] tracking-wide text-red-500 mt-2 overflow-hidden"
-                        >
-                            {fieldErrors.password}
-                        </motion.p>
-                    ) : (
-                        <motion.p
-                            key="hint"
-                            className="mt-2 text-[10px] text-gray-400"
-                        >
-                            {PASSWORD_HINT}
-                        </motion.p>
-                    )}
-                </AnimatePresence>
+                )}
             </div>
-
-            {/* BUTTONS */}
-            <div className="mt-6">
-                <button
-                    type="submit"
-                    className="w-full rounded-none bg-black py-4 text-[10px] font-bold tracking-[0.25em] text-white uppercase transition-all hover:bg-neutral-800 cursor-pointer active:scale-[0.98]"
-                >
-                    {isLogin ? "Sign In" : "Create Account"}
-                </button>
-
-                {/* Toggle Login/Register Mode */}
-                <div className="mt-6 text-center">
-                    <button
-                        type="button"
-                        onClick={() => {
-                            setIsLogin(!isLogin);
-                            setError("");
-                            setFieldErrors({
-                                firstName: "",
-                                lastName: "",
-                                email: "",
-                                password: "",
-                            });
-                        }}
-                        className="text-[10px] font-medium tracking-[0.1em] text-gray-500 hover:text-black uppercase transition-colors cursor-pointer"
+            <AnimatePresence>
+                {error && (
+                    <motion.p
+                        initial={{ opacity: 0, height: 0 }}
+                        animate={{ opacity: 1, height: "auto" }}
+                        exit={{ opacity: 0, height: 0 }}
+                        className="text-[10px] tracking-wide text-red-500 mt-2 overflow-hidden uppercase"
                     >
-                        {isLogin
-                            ? "Don't have an account? Sign up"
-                            : "Already have an account? Sign in"}
-                    </button>
-                </div>
-            </div>
-        </form>
+                        {error}
+                    </motion.p>
+                )}
+            </AnimatePresence>
+        </div>
     );
 }
 

@@ -112,7 +112,7 @@ export default function Contact() {
             <div className="mx-auto max-w-screen-2xl px-6 pt-32 pb-24 md:pt-48">
                 {/* ── Top Hero Text ── */}
                 <div className="mb-24 md:mb-32 w-full">
-                    <h1 className="text-[3.5rem] tracking-tighter md:text-7xl lg:text-[4rem] leading-[0.95] mb-8 max-w-full">
+                    <h1 className="text-[3.5rem] tracking-tighter font-bold md:text-4xl lg:text-5xl leading-[0.95] mb-8 max-w-full uppercase">
                         {content?.page_heading && content.page_heading
                             ? content.page_heading
                             : "Tell us about your space."}
@@ -173,74 +173,6 @@ export default function Contact() {
                         </button>
                     </div>
                 </motion.form>
-
-                {/* ── Bottom Section (Perfect 50/50 Alignment) ── */}
-                <div className="grid grid-cols-1 gap-16 md:grid-cols-2 md:items-stretch pt-16">
-                    {/* Left Side: Strict Vertical Stack */}
-                    <div className="flex flex-col space-y-16">
-                        {/* Location */}
-                        <div className="space-y-4">
-                            <span className="text-sm font-bold tracking-[0.2em] text-neutral-400 uppercase">
-                                Location
-                            </span>
-                            <div className="text-lg md:text-xl font-medium leading-snug text-neutral-900 tracking-tight">
-                                <p>
-                                    {content?.address_line_1 ||
-                                        "911 Josefina II,"}
-                                </p>
-                                <p>
-                                    {content?.address_line_2 ||
-                                        "Sampaloc, Manila, 1008"}
-                                </p>
-                            </div>
-                        </div>
-
-                        {/* Contact */}
-                        <div className="space-y-4">
-                            <span className="text-sm font-bold tracking-[0.2em] text-neutral-400 uppercase">
-                                Contact
-                            </span>
-                            <div className="text-lg md:text-xl font-medium leading-snug text-neutral-900 tracking-tight">
-                                <p>{content?.phone || "0932 454 9434"}</p>
-                                <a
-                                    href={`mailto:${content?.email || "rmty.architects@gmail.com"}`}
-                                    className="block transition-opacity hover:opacity-50"
-                                >
-                                    {content?.email ||
-                                        "rmty.architects@gmail.com"}
-                                </a>
-                            </div>
-                        </div>
-
-                        {/* Socials */}
-                        <div className="space-y-4">
-                            <span className="text-sm font-bold tracking-[0.2em] text-neutral-400 uppercase">
-                                Socials
-                            </span>
-                            <div className="text-lg md:text-xl font-medium leading-snug text-neutral-900 tracking-tight flex flex-col space-y-1">
-                                {["Instagram", "Facebook"].map((social) => (
-                                    <a
-                                        key={social}
-                                        href="#"
-                                        className="w-fit transition-opacity hover:opacity-50"
-                                    >
-                                        {social}
-                                    </a>
-                                ))}
-                            </div>
-                        </div>
-                    </div>
-
-                    {/* Right Side: Image matching exact height and width */}
-                    {/* min-h-[400px] ensures it still looks good on mobile before they sit side-by-side */}
-                    <div className="relative w-full min-h-[400px] bg-neutral-200 overflow-hidden">
-                        <img
-                            src={heroImageUrl}
-                            alt="Architectural detail"
-                            className="absolute inset-0 h-full w-full object-cover grayscale-[10%] transition-transform duration-[3s] hover:scale-105"
-                        />
-                    </div>
-                </div>
             </div>
         </section>
     );

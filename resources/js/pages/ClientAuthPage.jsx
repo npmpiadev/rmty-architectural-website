@@ -30,11 +30,7 @@ export default function ClientAuthPage() {
                         <div className="mb-12">
                             <h1 className="text-3xl lg:text-4xl font-bold tracking-tight uppercase leading-none mb-3">
                                 {prefillEmail ? (
-                                    <>
-                                        Almost
-                                        <br />
-                                        There.
-                                    </>
+                                    <>Almost There.</>
                                 ) : (
                                     <>Welcome Back.</>
                                 )}
@@ -47,11 +43,6 @@ export default function ClientAuthPage() {
                             </p>
                         </div>
 
-                        {/* 
-                            Client Auth Form 
-                            Note: Make sure your <button> inside this component 
-                            has 'cursor-pointer active:scale-[0.98]' applied to it!
-                        */}
                         <ClientAuthForm
                             prefillEmail={prefillEmail}
                             prefillFirstName={prefillFirstName}

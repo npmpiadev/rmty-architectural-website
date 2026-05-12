@@ -32,12 +32,14 @@ const PLATFORM_LABELS = {
     gmail: "Gmail",
     facebook: "Facebook",
     instagram: "Instagram",
+    website: "Website",
 };
 
 const PLATFORM_COLORS = {
     gmail: "bg-red-50 text-red-600 border-red-100",
     facebook: "bg-blue-50 text-blue-600 border-blue-100",
     instagram: "bg-pink-50 text-pink-600 border-pink-100",
+    website: "bg-gray-50 text-gray-600 border-gray-100",
 };
 
 const STATUS_COLORS = {
@@ -382,17 +384,19 @@ export default function AdminInquiries() {
     useEffect(() => {
         const key = location.state?.openThreadKey;
         if (key && allThreads.length > 0 && !hasProcessedNavState.current) {
-            const thread = allThreads.find(t => t.key === key);
+            const thread = allThreads.find((t) => t.key === key);
             if (thread) {
                 hasProcessedNavState.current = true;
                 setSelectedThreadKey(key);
                 // Switch tab to the correct status
                 if (thread.isArchived) {
-                    if (filters.status !== "archived") setFilter("status", "archived");
+                    if (filters.status !== "archived")
+                        setFilter("status", "archived");
                 } else if (thread.hasNew) {
                     if (filters.status !== "new") setFilter("status", "new");
                 } else if (thread.hasReplied) {
-                    if (filters.status !== "replied") setFilter("status", "replied");
+                    if (filters.status !== "replied")
+                        setFilter("status", "replied");
                 }
                 pendingMarkReadKey.current = key;
                 window.history.replaceState(null, document.title);

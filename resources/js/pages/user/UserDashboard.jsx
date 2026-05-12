@@ -7,123 +7,82 @@ const API_BASE   = import.meta.env.VITE_API_URL ?? "";
 const smoothEase = [0.22, 1, 0.36, 1];
 const MIN_RESCHEDULE_DATE = new Date().toISOString().slice(0, 10);
 
-// ── Helpers ───────────────────────────────────────────────────────────────────
-function parseLocal(dt) {
-    if (!dt) return null;
-    const raw = String(dt).replace(" ", "T")
-        .replace(/\.\d+Z$/i, "").replace(/Z$/i, "")
-        .replace(/[+-]\d{2}:\d{2}$/, "");
-    const d = new Date(raw);
-    return isNaN(d) ? null : d;
+// ── Helpers ──────────────────────────────────────────────────────────────────
+function fmt(dateTime, opts) {
+    if (!dateTime) return "—";
+    const d = new Date(String(dateTime).replace(" ", "T"));
+    return isNaN(d) ? String(dateTime) : d.toLocaleString("en-US", opts);
 }
-function fmtLocal(dt, opts) {
-    const d = parseLocal(dt);
-    return d ? d.toLocaleString("en-US", opts) : "—";
-}
-const fmtLocalDate     = (dt) => fmtLocal(dt, { month: "long", day: "numeric", year: "numeric" });
-const fmtLocalTime     = (dt) => fmtLocal(dt, { hour: "numeric", minute: "2-digit" });
-const fmtLocalDateTime = (dt) => fmtLocal(dt, { month: "long", day: "numeric", year: "numeric", hour: "numeric", minute: "2-digit" });
+const fmtDateTime = (dt) => fmt(dt, { month: "long", day: "numeric", year: "numeric", hour: "numeric", minute: "2-digit" });
+const fmtDate     = (dt) => fmt(dt, { month: "long", day: "numeric", year: "numeric" });
+const fmtTime     = (dt) => fmt(dt, { hour: "numeric", minute: "2-digit" });
 
 function fmtStatus(s) {
     const v = String(s || "pending").toLowerCase();
-    if (v === "accepted") return "Accepted";
     return v.charAt(0).toUpperCase() + v.slice(1);
 }
 
 function statusClasses(s) {
     const v = String(s || "").toLowerCase();
     if (v === "accepted" || v === "confirmed") return "border-emerald-200 bg-emerald-50 text-emerald-700";
-    if (v === "rescheduled") return "border-blue-200 bg-blue-50 text-blue-700";
-    if (v === "cancelled")   return "border-red-200 bg-red-50 text-red-700";
-    if (v === "completed")   return "border-neutral-300 bg-neutral-100 text-neutral-700";
-    return "border-amber-200 bg-amber-50 text-amber-700";
-}
-
-// ── Appointment tracking steps ────────────────────────────────────────────────
-// Returns array of { label, done, current, color }
-function buildTrackingSteps(status) {
-    const v = String(status || "pending").toLowerCase();
-
-    const steps = [
-        { key: "submitted",  label: "Submitted" },
-        { key: "review",     label: "Under Review" },
-        { key: "accepted",   label: "Accepted" },
-        { key: "completed",  label: "Completed" },
-    ];
-
-    // For cancelled / rescheduled we show a different last step
-    if (v === "cancelled") {
-        return [
-            { label: "Submitted",   done: true,  current: false, color: "bg-neutral-900" },
-            { label: "Under Review",done: true,  current: false, color: "bg-neutral-900" },
-            { label: "Cancelled",   done: false, current: true,  color: "bg-red-500" },
-        ];
-    }
-    if (v === "rescheduled") {
-        return [
-            { label: "Submitted",    done: true,  current: false, color: "bg-neutral-900" },
-            { label: "Under Review", done: true,  current: false, color: "bg-neutral-900" },
-            { label: "Rescheduled",  done: false, current: true,  color: "bg-blue-500" },
-        ];
-    }
-
-    const order = { pending: 1, accepted: 2, completed: 3 };
-    const currentStep = order[v] ?? 1;
-
-    return steps.map((s, i) => {
-        const stepNum = i + 1; // submitted=1, review=1.5 (treat as pending), accepted=2, completed=3
-        const stepOrder = [1, 1, 2, 3][i];
-        const done    = stepOrder < currentStep;
-        const current = stepOrder === currentStep && i === [0,1,2,3].find(idx => [1,1,2,3][idx] === currentStep && (currentStep !== 1 || idx === (v === "pending" ? 1 : 0)));
-
-        return {
-            label:   s.label,
-            done:    done || (v !== "pending" && stepOrder <= currentStep),
-            current: stepOrder === currentStep,
-            color:   "bg-neutral-900",
-        };
-    });
+    if (v === "rescheduled")  return "border-blue-200 bg-blue-50 text-blue-700";
+    if (v === "cancelled")    return "border-red-200 bg-red-50 text-red-700";
+    if (v === "completed")    return "border-neutral-300 bg-neutral-100 text-neutral-700";
+    return "border-amber-200 bg-amber-50 text-amber-700"; // pending
 }
 
 function buildTimeOptions() {
     return Array.from({ length: 17 }).map((_, i) => {
         const total = 9 * 60 + i * 30;
         const h = Math.floor(total / 60), m = total % 60;
-        return {
-            value: `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}`,
-            label: `${h % 12 || 12}:${m === 0 ? "00" : m} ${h < 12 ? "AM" : "PM"}`,
-        };
+        const value = `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}`;
+        const label = `${h % 12 || 12}:${m === 0 ? "00" : m} ${h < 12 ? "AM" : "PM"}`;
+        return { value, label };
     });
 }
 
 function splitDT(dt) {
-    const d = parseLocal(dt);
-    if (!d) return { date: "", time: "" };
+    if (!dt) return { date: "", time: "" };
+    const d = new Date(String(dt).replace(" ", "T"));
+    if (isNaN(d)) return { date: "", time: "" };
     return {
-        date: `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`,
-        time: `${String(d.getHours()).padStart(2,"0")}:${String(d.getMinutes()).padStart(2,"0")}`,
+        date: d.toISOString().slice(0, 10),
+        time: `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`,
     };
 }
 
-// ── Auth guard ────────────────────────────────────────────────────────────────
+// ── Auth-guard hook ───────────────────────────────────────────────────────────
 function useAuthGuard() {
     const navigate = useNavigate();
     const token = localStorage.getItem("token");
     const user  = (() => { try { return JSON.parse(localStorage.getItem("user")); } catch { return null; } })();
-    useEffect(() => { if (!token || !user) navigate("/auth", { replace: true }); }, []);
+
+    useEffect(() => {
+        if (!token || !user) {
+            navigate("/auth", { replace: true });
+        }
+    }, [token, user, navigate]);
+
     return { token, user };
 }
 
+// ── API helper ────────────────────────────────────────────────────────────────
 async function apiFetch(path, token, options = {}) {
     const res = await fetch(`${API_BASE}${path}`, {
         ...options,
-        headers: { "Content-Type": "application/json", Accept: "application/json", Authorization: `Bearer ${token}`, ...(options.headers ?? {}) },
+        headers: {
+            "Content-Type": "application/json",
+            Accept: "application/json",
+            Authorization: `Bearer ${token}`,
+            ...(options.headers ?? {}),
+        },
     });
     const data = await res.json().catch(() => ({}));
     if (!res.ok) throw new Error(data.message || "Request failed");
     return data;
 }
 
+// ── Normalize API consultation → dashboard shape ──────────────────────────────
 function normalizeConsult(c) {
     return {
         id:               c.id,
@@ -146,29 +105,45 @@ function normalizeConsult(c) {
 export default function UserDashboard() {
     const navigate = useNavigate();
     const { token, user } = useAuthGuard();
+
     const profileDropdownRef = useRef(null);
 
-    const [loading,             setLoading]             = useState(true);
-    const [appointments,        setAppointments]        = useState([]);
-    const [selectedId,          setSelectedId]          = useState(null);
-    const [showProfileDropdown, setShowProfileDropdown] = useState(false);
-    const [showProfileModal,    setShowProfileModal]    = useState(false);
-    const [showRescheduleModal, setShowRescheduleModal] = useState(false);
+    const [loading,              setLoading]              = useState(true);
+    const [appointments,         setAppointments]         = useState([]);
+    const [selectedId,           setSelectedId]           = useState(null);
+    const [showProfileDropdown,  setShowProfileDropdown]  = useState(false);
+    const [showProfileModal,     setShowProfileModal]     = useState(false);
+    const [showRescheduleModal,  setShowRescheduleModal]  = useState(false);
 
-    const [profileForm, setProfileForm] = useState({ firstName: "", lastName: "", email: "", phone: "" });
-    const [rescheduleForm, setRescheduleForm] = useState({ consultationDate: "", consultationTime: "", rescheduleReason: "" });
+    const [profileForm, setProfileForm] = useState({
+        firstName: "", lastName: "", email: "", phone: "",
+    });
 
+    const [rescheduleForm, setRescheduleForm] = useState({
+        consultationDate: "", consultationTime: "", rescheduleReason: "",
+    });
+
+    // ── Load appointments from API ────────────────────────────────────────
     useEffect(() => {
         if (!token) return;
+
         (async () => {
             try {
-                const data = await apiFetch("/api/consultations/my-all", token);
+                // Fetch ALL consultations for this user by email
+                const data = await apiFetch(
+                    `/api/consultations/my-all`,
+                    token
+                );
                 const list = Array.isArray(data.consultations)
                     ? data.consultations.map(normalizeConsult)
-                    : Array.isArray(data) ? data.map(normalizeConsult) : [];
+                    : Array.isArray(data)
+                    ? data.map(normalizeConsult)
+                    : [];
+
                 setAppointments(list);
                 setSelectedId(list[0]?.id ?? null);
             } catch (err) {
+                // If endpoint not yet set up, fallback gracefully
                 console.warn("Could not load appointments:", err.message);
             } finally {
                 setLoading(false);
@@ -176,6 +151,7 @@ export default function UserDashboard() {
         })();
     }, [token]);
 
+    // ── Prefill profile form from localStorage user ───────────────────────
     useEffect(() => {
         if (!user) return;
         const parts = (user.name ?? "").split(" ");
@@ -187,40 +163,61 @@ export default function UserDashboard() {
         });
     }, []);
 
+    // ── Close dropdown on outside click ──────────────────────────────────
     useEffect(() => {
         const handler = (e) => {
-            if (profileDropdownRef.current && !profileDropdownRef.current.contains(e.target))
+            if (profileDropdownRef.current && !profileDropdownRef.current.contains(e.target)) {
                 setShowProfileDropdown(false);
+            }
         };
         document.addEventListener("mousedown", handler);
         return () => document.removeEventListener("mousedown", handler);
     }, []);
 
-    const selected = useMemo(() => appointments.find((a) => a.id === selectedId) ?? null, [appointments, selectedId]);
+    const selected = useMemo(
+        () => appointments.find((a) => a.id === selectedId) ?? null,
+        [appointments, selectedId]
+    );
+
     const displayName = profileForm.firstName?.trim() || user?.email?.split("@")[0] || "Client";
-    const initials = `${profileForm.firstName?.[0] ?? "C"}${profileForm.lastName?.[0] ?? ""}`.toUpperCase();
-    const today = new Date().toLocaleDateString("en-US", { weekday: "long", year: "numeric", month: "long", day: "numeric" });
+    const initials    = `${profileForm.firstName?.[0] ?? "C"}${profileForm.lastName?.[0] ?? ""}`.toUpperCase();
+
+    const today = new Date().toLocaleDateString("en-US", {
+        weekday: "long", year: "numeric", month: "long", day: "numeric",
+    });
 
     const notifications = useMemo(() => {
         if (!selected) return [];
         const items = [
-            { id: 1, title: "Appointment submitted", desc: "Your consultation request has been recorded.", time: fmtLocalDateTime(selected.createdAt) },
+            {
+                id: 1,
+                title: "Appointment submitted",
+                desc: "Your consultation request has been recorded.",
+                time: fmtDateTime(selected.createdAt),
+            },
             {
                 id: 2,
                 title: `Status: ${fmtStatus(selected.status)}`,
-                desc: selected.status === "rescheduled" ? "Your appointment schedule was updated."
-                    : selected.status === "cancelled"   ? "Your appointment has been cancelled."
-                    : selected.status === "accepted"    ? "Your appointment has been confirmed."
+                desc: selected.status === "rescheduled"
+                    ? "Your appointment schedule was updated."
+                    : selected.status === "cancelled"
+                    ? "Your appointment has been cancelled."
                     : "Track your latest appointment status here.",
-                time: fmtLocalDateTime(selected.updatedAt || selected.createdAt),
+                time: fmtDateTime(selected.updatedAt || selected.createdAt),
             },
         ];
         if (selected.rescheduleReason?.trim()) {
-            items.push({ id: 3, title: "Reschedule reason", desc: selected.rescheduleReason, time: fmtLocalDateTime(selected.updatedAt) });
+            items.push({
+                id: 3,
+                title: "Reschedule reason",
+                desc: selected.rescheduleReason,
+                time: fmtDateTime(selected.updatedAt),
+            });
         }
         return items;
     }, [selected]);
 
+    // ── Handlers ──────────────────────────────────────────────────────────
     function handleLogout() {
         localStorage.removeItem("token");
         localStorage.removeItem("user");
@@ -229,21 +226,60 @@ export default function UserDashboard() {
 
     async function handleSaveProfile(e) {
         e.preventDefault();
-        const updated = { ...user, first_name: profileForm.firstName, last_name: profileForm.lastName, name: `${profileForm.firstName} ${profileForm.lastName}`, email: profileForm.email, phone: profileForm.phone };
+        // Profile update is local for now (no dedicated endpoint in spec)
+        // Update localStorage user object
+        const updated = {
+            ...user,
+            first_name: profileForm.firstName,
+            last_name:  profileForm.lastName,
+            name:       `${profileForm.firstName} ${profileForm.lastName}`,
+            email:      profileForm.email,
+            phone:      profileForm.phone,
+        };
         localStorage.setItem("user", JSON.stringify(updated));
-        await Swal.fire({ icon: "success", title: "Profile updated", confirmButtonColor: "#000000" });
+
+        await Swal.fire({
+            icon: "success",
+            title: "Profile updated",
+            confirmButtonColor: "#000000",
+        });
         setShowProfileModal(false);
         setShowProfileDropdown(false);
     }
 
     async function handleCancelAppointment() {
         if (!selected) return;
-        const result = await Swal.fire({ icon: "warning", title: "Cancel appointment?", text: "This action cannot be undone.", showCancelButton: true, confirmButtonText: "Yes, cancel it", cancelButtonText: "No, keep it", confirmButtonColor: "#000000" });
+
+        const result = await Swal.fire({
+            icon: "warning",
+            title: "Cancel appointment?",
+            text: "This action cannot be undone.",
+            showCancelButton: true,
+            confirmButtonText: "Yes, cancel it",
+            cancelButtonText: "No, keep it",
+            confirmButtonColor: "#000000",
+        });
         if (!result.isConfirmed) return;
+
         try {
-            await apiFetch(`/api/consultations/${selected.id}`, token, { method: "PUT", body: JSON.stringify({ status: "cancelled" }) });
-            setAppointments((prev) => prev.map((a) => a.id === selected.id ? { ...a, status: "cancelled", updatedAt: new Date().toISOString() } : a));
-            await Swal.fire({ icon: "success", title: "Appointment cancelled", confirmButtonColor: "#000000" });
+            await apiFetch(`/api/consultations/${selected.id}`, token, {
+                method: "PUT",
+                body: JSON.stringify({ status: "cancelled" }),
+            });
+
+            setAppointments((prev) =>
+                prev.map((a) =>
+                    a.id === selected.id
+                        ? { ...a, status: "cancelled", updatedAt: new Date().toISOString() }
+                        : a
+                )
+            );
+
+            await Swal.fire({
+                icon: "success",
+                title: "Appointment cancelled",
+                confirmButtonColor: "#000000",
+            });
         } catch (err) {
             Swal.fire({ icon: "error", title: "Failed", text: err.message, confirmButtonColor: "#000000" });
         }
@@ -252,35 +288,85 @@ export default function UserDashboard() {
     function openRescheduleModal() {
         if (!selected) return;
         const split = splitDT(selected.consultationDate);
-        setRescheduleForm({ consultationDate: split.date || MIN_RESCHEDULE_DATE, consultationTime: split.time || "09:00", rescheduleReason: selected.rescheduleReason || "" });
+        setRescheduleForm({
+            consultationDate: split.date || MIN_RESCHEDULE_DATE,
+            consultationTime: split.time || "09:00",
+            rescheduleReason: selected.rescheduleReason || "",
+        });
         setShowRescheduleModal(true);
     }
 
     async function handleConfirmReschedule(e) {
         e.preventDefault();
+
         if (!rescheduleForm.consultationDate || !rescheduleForm.consultationTime || !rescheduleForm.rescheduleReason.trim()) {
-            await Swal.fire({ icon: "warning", title: "Incomplete details", text: "Please fill in all reschedule fields.", confirmButtonColor: "#000000" });
+            await Swal.fire({
+                icon: "warning",
+                title: "Incomplete details",
+                text: "Please fill in all reschedule fields.",
+                confirmButtonColor: "#000000",
+            });
             return;
         }
-        const result = await Swal.fire({ icon: "question", title: "Reschedule appointment?", showCancelButton: true, confirmButtonText: "Yes, reschedule", cancelButtonText: "Cancel", confirmButtonColor: "#000000" });
+
+        const result = await Swal.fire({
+            icon: "question",
+            title: "Reschedule appointment?",
+            showCancelButton: true,
+            confirmButtonText: "Yes, reschedule",
+            cancelButtonText: "Cancel",
+            confirmButtonColor: "#000000",
+        });
         if (!result.isConfirmed || !selected) return;
+
         const newDateTime = `${rescheduleForm.consultationDate} ${rescheduleForm.consultationTime}:00`;
+
         try {
-            await apiFetch(`/api/consultations/${selected.id}`, token, { method: "PUT", body: JSON.stringify({ status: "rescheduled", consultation_date: newDateTime, reschedule_reason: rescheduleForm.rescheduleReason }) });
-            setAppointments((prev) => prev.map((a) => a.id === selected.id ? { ...a, status: "rescheduled", consultationDate: newDateTime, rescheduleReason: rescheduleForm.rescheduleReason, updatedAt: new Date().toISOString() } : a));
+            await apiFetch(`/api/consultations/${selected.id}`, token, {
+                method: "PUT",
+                body: JSON.stringify({
+                    status:             "rescheduled",
+                    consultation_date:  newDateTime,
+                    reschedule_reason:  rescheduleForm.rescheduleReason,
+                }),
+            });
+
+            setAppointments((prev) =>
+                prev.map((a) =>
+                    a.id === selected.id
+                        ? {
+                            ...a,
+                            status:           "rescheduled",
+                            consultationDate: newDateTime,
+                            rescheduleReason: rescheduleForm.rescheduleReason,
+                            updatedAt:        new Date().toISOString(),
+                          }
+                        : a
+                )
+            );
+
             setShowRescheduleModal(false);
-            await Swal.fire({ icon: "success", title: "Appointment rescheduled", confirmButtonColor: "#000000" });
+
+            await Swal.fire({
+                icon: "success",
+                title: "Appointment rescheduled",
+                confirmButtonColor: "#000000",
+            });
         } catch (err) {
             Swal.fire({ icon: "error", title: "Failed", text: err.message, confirmButtonColor: "#000000" });
         }
     }
 
-    if (!token || !user) return null;
+    // ── Loading / auth ────────────────────────────────────────────────────
+    if (!token || !user) return null; // useAuthGuard handles redirect
+
     if (loading) {
         return (
             <div className="flex flex-col items-center justify-center min-h-screen gap-4 bg-gray-100 [font-family:var(--font-neue)]">
                 <div className="w-8 h-8 border-4 border-neutral-200 border-t-black rounded-full animate-spin" />
-                <p className="text-[10px] font-bold tracking-widest text-neutral-400 uppercase">Loading Dashboard</p>
+                <p className="text-[10px] font-bold tracking-widest text-neutral-400 uppercase">
+                    Loading Dashboard
+                </p>
             </div>
         );
     }
@@ -289,27 +375,38 @@ export default function UserDashboard() {
         <div className="min-h-screen bg-gray-100 [font-family:var(--font-neue)]">
             <div className="flex min-h-screen">
 
-                {/* Sidebar */}
+                {/* ── Sidebar ── */}
                 <aside className="hidden lg:flex w-[260px] bg-black text-white px-6 py-6 flex-col justify-between">
                     <div>
-                        <div className="mb-10 flex items-center gap-4 px-1 py-2">
-                            <img src="/images/rmty-logo-transparent.png" alt="RMTY" className="h-12 w-12 object-contain" />
-                            <span className="text-[2.2rem] leading-none font-black tracking-tight">RMTY</span>
+                        <div className="mb-10">
+                            <div className="flex items-center gap-4 px-1 py-2">
+                                <img src="/images/rmty-logo-transparent.png" alt="RMTY Logo" className="h-12 w-12 object-contain" />
+                                <span className="text-[2.2rem] leading-none font-black tracking-tight text-white">RMTY</span>
+                            </div>
                         </div>
-                        <nav>
-                            <button type="button" className="w-full flex items-center gap-3 rounded-2xl px-4 py-3 bg-neutral-700 text-white cursor-pointer">
+                        <nav className="space-y-2">
+                            <button
+                                type="button"
+                                className="w-full flex items-center gap-3 rounded-2xl px-4 py-3 text-left bg-neutral-700 text-white cursor-pointer"
+                            >
                                 <CalendarIcon className="w-5 h-5" />
                                 <span className="text-sm font-bold tracking-wide">Appointments</span>
                             </button>
                         </nav>
                     </div>
-                    <button type="button" onClick={handleLogout} className="w-full flex items-center gap-3 rounded-2xl px-4 py-3 bg-white/10 text-white hover:bg-white/20 transition-all cursor-pointer">
+                    <button
+                        type="button"
+                        onClick={handleLogout}
+                        className="w-full flex items-center gap-3 rounded-2xl px-4 py-3 text-left transition-all bg-white/10 text-white hover:bg-white/20 cursor-pointer"
+                    >
                         <LogoutIcon className="w-5 h-5" />
                         <span className="text-sm font-bold tracking-wide">Logout</span>
                     </button>
                 </aside>
 
-                <div className="flex-1 min-w-0">
+                {/* ── Main ── */}
+                <div className="flex-1 min-w-0 bg-gray-100">
+
                     {/* Header */}
                     <header className="sticky top-0 z-30 bg-gray-100/95 backdrop-blur border-b border-neutral-200 px-4 md:px-6 lg:px-8 py-4">
                         <div className="flex items-center justify-between gap-4">
@@ -317,26 +414,48 @@ export default function UserDashboard() {
                                 <p className="text-[10px] font-bold tracking-[0.15em] text-neutral-400 uppercase mb-1">Today</p>
                                 <p className="text-sm font-bold text-neutral-900">{today}</p>
                             </div>
+
                             <div className="flex items-center gap-3">
+                                {/* Bell */}
                                 <button type="button" className="relative w-11 h-11 rounded-full border border-neutral-200 bg-white flex items-center justify-center text-neutral-700 hover:border-neutral-300 transition-colors cursor-pointer">
                                     <BellIcon className="w-5 h-5" />
-                                    {notifications.length > 0 && <span className="absolute top-2 right-2 w-2.5 h-2.5 rounded-full bg-red-500" />}
+                                    {notifications.length > 0 && (
+                                        <span className="absolute top-2 right-2 w-2.5 h-2.5 rounded-full bg-red-500" />
+                                    )}
                                 </button>
+
+                                {/* Profile dropdown */}
                                 <div className="relative" ref={profileDropdownRef}>
-                                    <button type="button" onClick={() => setShowProfileDropdown((p) => !p)} className="flex items-center gap-3 rounded-full border border-neutral-200 bg-white px-3 py-2 hover:border-neutral-300 transition-colors cursor-pointer">
-                                        <div className="w-9 h-9 rounded-full bg-neutral-900 text-white flex items-center justify-center text-sm font-black">{initials}</div>
+                                    <button
+                                        type="button"
+                                        onClick={() => setShowProfileDropdown((p) => !p)}
+                                        className="flex items-center gap-3 rounded-full border border-neutral-200 bg-white px-3 py-2 hover:border-neutral-300 transition-colors cursor-pointer"
+                                    >
+                                        <div className="w-9 h-9 rounded-full bg-neutral-900 text-white flex items-center justify-center text-sm font-black uppercase">
+                                            {initials}
+                                        </div>
                                         <div className="hidden sm:block text-left">
                                             <p className="text-sm font-bold text-neutral-900 leading-tight">{displayName}</p>
                                             <p className="text-[11px] font-medium text-neutral-500">Client</p>
                                         </div>
                                         <ChevronDownIcon className="w-4 h-4 text-neutral-500" />
                                     </button>
+
                                     <AnimatePresence>
                                         {showProfileDropdown && (
-                                            <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: 8 }} transition={{ duration: 0.2 }}
-                                                className="absolute right-0 mt-3 w-[200px] rounded-2xl border border-neutral-200 bg-white shadow-xl overflow-hidden z-50">
-                                                <button type="button" onClick={() => { setShowProfileModal(true); setShowProfileDropdown(false); }} className="w-full px-4 py-3 text-left text-sm font-medium text-neutral-700 hover:bg-neutral-50 transition-colors cursor-pointer">Edit Profile</button>
-                                                <button type="button" onClick={handleLogout} className="w-full px-4 py-3 text-left text-sm font-medium text-red-600 hover:bg-red-50 transition-colors cursor-pointer">Logout</button>
+                                            <motion.div
+                                                initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }}
+                                                exit={{ opacity: 0, y: 8 }} transition={{ duration: 0.2 }}
+                                                className="absolute right-0 mt-3 w-[200px] rounded-2xl border border-neutral-200 bg-white shadow-xl overflow-hidden z-50"
+                                            >
+                                                <button type="button" onClick={() => { setShowProfileModal(true); setShowProfileDropdown(false); }}
+                                                    className="w-full px-4 py-3 text-left text-sm font-medium text-neutral-700 hover:bg-neutral-50 transition-colors cursor-pointer">
+                                                    Edit Profile
+                                                </button>
+                                                <button type="button" onClick={handleLogout}
+                                                    className="w-full px-4 py-3 text-left text-sm font-medium text-red-600 hover:bg-red-50 transition-colors cursor-pointer">
+                                                    Logout
+                                                </button>
                                             </motion.div>
                                         )}
                                     </AnimatePresence>
@@ -345,26 +464,29 @@ export default function UserDashboard() {
                         </div>
                     </header>
 
-                    {/* Main content */}
+                    {/* Content */}
                     <main className="px-4 md:px-6 lg:px-8 py-6">
-                        <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.4, ease: smoothEase }} className="space-y-6">
-
+                        <motion.div
+                            initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }}
+                            transition={{ duration: 0.4, ease: smoothEase }}
+                            className="space-y-6"
+                        >
                             <div>
                                 <h2 className="text-2xl md:text-3xl font-black tracking-tight text-neutral-900 mb-1.5">My Appointments</h2>
-                                <p className="text-sm font-medium text-neutral-500">Track your consultation and manage your schedule.</p>
+                                <p className="text-sm font-medium text-neutral-500">Track your consultation request and manage your schedule.</p>
                             </div>
 
                             {/* Stat cards */}
                             <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-                                <StatCard label="Current Status"    value={selected ? fmtStatus(selected.status) : "—"} icon={<ActivityIcon />} />
-                                <StatCard label="Consultation Date" value={selected ? fmtLocalDate(selected.consultationDate) : "—"} icon={<CalendarIcon />} />
-                                <StatCard label="Consultation Time" value={selected ? fmtLocalTime(selected.consultationDate) : "—"} icon={<ClockIcon />} />
+                                <StatCard label="Current Status"     value={selected ? fmtStatus(selected.status) : "—"} icon={<ActivityIcon />} />
+                                <StatCard label="Consultation Date"  value={selected ? fmtDate(selected.consultationDate) : "—"} icon={<CalendarIcon />} />
+                                <StatCard label="Consultation Time"  value={selected ? fmtTime(selected.consultationDate) : "—"} icon={<ClockIcon />} />
                             </div>
 
                             <div className="grid grid-cols-1 xl:grid-cols-3 gap-6 items-start">
                                 <div className="xl:col-span-2 space-y-6">
 
-                                    {/* Overview */}
+                                    {/* Appointment overview */}
                                     <section className="rounded-2xl border border-neutral-200 bg-white overflow-hidden">
                                         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 px-6 py-5 border-b border-neutral-100 bg-neutral-50/50">
                                             <div>
@@ -381,7 +503,11 @@ export default function UserDashboard() {
                                         {!selected ? (
                                             <div className="p-8 text-center">
                                                 <p className="text-sm font-medium text-neutral-500 mb-4">No appointment found.</p>
-                                                <button type="button" onClick={() => navigate("/appointments")} className="rounded-full bg-black px-6 py-3 text-[10px] font-bold tracking-[0.2em] uppercase text-white hover:opacity-80 transition-all cursor-pointer">
+                                                <button
+                                                    type="button"
+                                                    onClick={() => navigate("/appointments")}
+                                                    className="rounded-full bg-black px-6 py-3 text-[10px] font-bold tracking-[0.2em] uppercase text-white hover:opacity-80 transition-all cursor-pointer"
+                                                >
                                                     Book a Consultation
                                                 </button>
                                             </div>
@@ -394,11 +520,12 @@ export default function UserDashboard() {
                                                         <FieldRow label="Email"      value={selected.email} />
                                                         <FieldRow label="Phone"      value={selected.phone || "—"} />
                                                     </DetailCard>
+
                                                     <DetailCard title="Project Information">
                                                         <FieldRow label="Location"     value={selected.location || "—"} />
                                                         <FieldRow label="Project Type" value={selected.projectType || "—"} />
-                                                        <FieldRow label="Submitted"    value={fmtLocalDateTime(selected.createdAt)} />
-                                                        <FieldRow label="Last Updated" value={fmtLocalDateTime(selected.updatedAt)} />
+                                                        <FieldRow label="Submitted"    value={fmtDateTime(selected.createdAt)} />
+                                                        <FieldRow label="Last Updated" value={fmtDateTime(selected.updatedAt)} />
                                                     </DetailCard>
                                                 </div>
 
@@ -408,16 +535,29 @@ export default function UserDashboard() {
                                                     </p>
                                                 </DetailCard>
 
-                                                {/* ── Fixed Appointment Tracking ── */}
-                                                <AppointmentTracking status={selected.status} rescheduleReason={selected.rescheduleReason} consultationDate={selected.consultationDate} updatedAt={selected.updatedAt} />
+                                                <DetailCard title="Appointment Tracking">
+                                                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                                                        <TimelineStep label="Submitted"    active />
+                                                        <TimelineStep label="Pending Review" active />
+                                                        <TimelineStep label={fmtStatus(selected.status)} active />
+                                                    </div>
+                                                    {selected.rescheduleReason?.trim() && (
+                                                        <div className="mt-5 rounded-xl border border-blue-200 bg-blue-50 px-4 py-3">
+                                                            <p className="text-[10px] font-bold tracking-[0.15em] text-blue-700 uppercase mb-2">Reschedule Reason</p>
+                                                            <p className="text-sm text-blue-900 leading-relaxed">{selected.rescheduleReason}</p>
+                                                        </div>
+                                                    )}
+                                                </DetailCard>
 
-                                                {/* Actions */}
+                                                {/* Actions — only for active statuses */}
                                                 {["pending", "accepted", "rescheduled"].includes(selected.status) && (
                                                     <div className="flex flex-col sm:flex-row gap-3">
-                                                        <button type="button" onClick={openRescheduleModal} className="rounded-full bg-black px-6 py-3 text-[10px] font-bold tracking-[0.2em] uppercase text-white hover:opacity-80 transition-all cursor-pointer">
+                                                        <button type="button" onClick={openRescheduleModal}
+                                                            className="rounded-full bg-black px-6 py-3 text-[10px] font-bold tracking-[0.2em] uppercase text-white hover:opacity-80 transition-all cursor-pointer">
                                                             Reschedule
                                                         </button>
-                                                        <button type="button" onClick={handleCancelAppointment} className="rounded-full border border-red-200 bg-red-50 px-6 py-3 text-[10px] font-bold tracking-[0.2em] uppercase text-red-700 hover:bg-red-100 transition-all cursor-pointer">
+                                                        <button type="button" onClick={handleCancelAppointment}
+                                                            className="rounded-full border border-red-200 bg-red-50 px-6 py-3 text-[10px] font-bold tracking-[0.2em] uppercase text-red-700 hover:bg-red-100 transition-all cursor-pointer">
                                                             Cancel
                                                         </button>
                                                     </div>
@@ -426,7 +566,7 @@ export default function UserDashboard() {
                                         )}
                                     </section>
 
-                                    {/* All appointments list */}
+                                    {/* Appointment list */}
                                     {appointments.length > 1 && (
                                         <section className="rounded-2xl border border-neutral-200 bg-white overflow-hidden">
                                             <div className="px-6 py-5 border-b border-neutral-100 bg-neutral-50/50">
@@ -435,11 +575,12 @@ export default function UserDashboard() {
                                             <div className="divide-y divide-neutral-100">
                                                 {appointments.map((item) => (
                                                     <button key={item.id} type="button" onClick={() => setSelectedId(item.id)}
-                                                        className={`w-full text-left px-6 py-4 transition-colors cursor-pointer ${selectedId === item.id ? "bg-neutral-100" : "hover:bg-neutral-50/60"}`}>
+                                                        className={`w-full text-left px-6 py-4 transition-colors cursor-pointer ${selectedId === item.id ? "bg-neutral-100" : "hover:bg-neutral-50/60"}`}
+                                                    >
                                                         <div className="flex items-start justify-between gap-4">
                                                             <div>
                                                                 <p className="text-sm font-bold text-neutral-900">{item.projectType || "Appointment"}</p>
-                                                                <p className="text-xs font-medium text-neutral-500 mt-1">{fmtLocalDateTime(item.consultationDate)}</p>
+                                                                <p className="text-xs font-medium text-neutral-500 mt-1">{fmtDateTime(item.consultationDate)}</p>
                                                             </div>
                                                             <span className={`inline-flex items-center rounded-full border px-2.5 py-1 text-[9px] font-bold uppercase tracking-[0.15em] ${statusClasses(item.status)}`}>
                                                                 {fmtStatus(item.status)}
@@ -524,146 +665,7 @@ export default function UserDashboard() {
     );
 }
 
-// ── Appointment Tracking Component ────────────────────────────────────────────
-function AppointmentTracking({ status, rescheduleReason, consultationDate, updatedAt }) {
-    const v = String(status || "pending").toLowerCase();
-
-    // Define the visual steps per status
-    const steps = useMemo(() => {
-        if (v === "cancelled") {
-            return [
-                { label: "Submitted",    desc: "Request received",           done: true,  active: false, variant: "done" },
-                { label: "Under Review", desc: "Being reviewed by our team", done: true,  active: false, variant: "done" },
-                { label: "Cancelled",    desc: "Appointment was cancelled",   done: false, active: true,  variant: "cancelled" },
-            ];
-        }
-        if (v === "rescheduled") {
-            return [
-                { label: "Submitted",    desc: "Request received",           done: true,  active: false, variant: "done" },
-                { label: "Accepted",     desc: "Was confirmed by our team",  done: true,  active: false, variant: "done" },
-                { label: "Rescheduled",  desc: "Schedule has been updated",  done: false, active: true,  variant: "rescheduled" },
-            ];
-        }
-        if (v === "accepted" || v === "confirmed") {
-            return [
-                { label: "Submitted",    desc: "Request received",           done: true,  active: false, variant: "done" },
-                { label: "Under Review", desc: "Reviewed by our team",       done: true,  active: false, variant: "done" },
-                { label: "Accepted",     desc: "Your appointment is confirmed", done: false, active: true, variant: "accepted" },
-                { label: "Completed",    desc: "After your session",         done: false, active: false, variant: "upcoming" },
-            ];
-        }
-        if (v === "completed") {
-            return [
-                { label: "Submitted",    desc: "Request received",           done: true, active: false, variant: "done" },
-                { label: "Under Review", desc: "Reviewed by our team",       done: true, active: false, variant: "done" },
-                { label: "Accepted",     desc: "Was confirmed",              done: true, active: false, variant: "done" },
-                { label: "Completed",    desc: "Session completed",          done: true, active: true,  variant: "done" },
-            ];
-        }
-        // pending
-        return [
-            { label: "Submitted",    desc: "Request received",           done: true,  active: false, variant: "done" },
-            { label: "Under Review", desc: "Awaiting team review",       done: false, active: true,  variant: "pending" },
-            { label: "Accepted",     desc: "Confirmation pending",       done: false, active: false, variant: "upcoming" },
-            { label: "Completed",    desc: "After your session",         done: false, active: false, variant: "upcoming" },
-        ];
-    }, [v]);
-
-    const dotColor = {
-        done:        "bg-neutral-900 border-neutral-900",
-        pending:     "bg-amber-400 border-amber-400 animate-pulse",
-        accepted:    "bg-emerald-500 border-emerald-500",
-        rescheduled: "bg-blue-500 border-blue-500",
-        cancelled:   "bg-red-500 border-red-500",
-        upcoming:    "bg-white border-neutral-300",
-    };
-    const textColor = {
-        done:        "text-neutral-900",
-        pending:     "text-amber-600",
-        accepted:    "text-emerald-700",
-        rescheduled: "text-blue-700",
-        cancelled:   "text-red-700",
-        upcoming:    "text-neutral-400",
-    };
-    const lineColor = (step) => step.done ? "bg-neutral-900" : "bg-neutral-200";
-
-    return (
-        <section className="rounded-2xl border border-neutral-200 overflow-hidden">
-            <div className="px-6 py-4 border-b border-neutral-100 bg-neutral-50/50">
-                <h3 className="text-sm font-bold tracking-widest text-neutral-900 uppercase">Appointment Tracking</h3>
-            </div>
-            <div className="p-6">
-                {/* Timeline */}
-                <div className="flex items-start gap-0">
-                    {steps.map((step, i) => (
-                        <div key={step.label} className="flex-1 flex flex-col items-center">
-                            <div className="flex items-center w-full">
-                                {/* Left connector */}
-                                {i > 0 && <div className={`flex-1 h-0.5 ${lineColor(steps[i-1])}`} />}
-                                {/* Dot */}
-                                <div className={`w-4 h-4 rounded-full border-2 flex-shrink-0 ${dotColor[step.variant] ?? dotColor.upcoming}`} />
-                                {/* Right connector */}
-                                {i < steps.length - 1 && <div className={`flex-1 h-0.5 ${lineColor(step)}`} />}
-                            </div>
-                            <div className="mt-3 text-center px-1">
-                                <p className={`text-[10px] font-bold tracking-[0.1em] uppercase ${textColor[step.variant] ?? textColor.upcoming}`}>
-                                    {step.label}
-                                </p>
-                                <p className="text-[10px] text-neutral-400 mt-0.5 leading-tight hidden sm:block">
-                                    {step.desc}
-                                </p>
-                            </div>
-                        </div>
-                    ))}
-                </div>
-
-                {/* Status-specific info blocks */}
-                {v === "accepted" && consultationDate && (
-                    <div className="mt-6 rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3">
-                        <p className="text-[10px] font-bold tracking-[0.15em] text-emerald-700 uppercase mb-1">Confirmed Schedule</p>
-                        <p className="text-sm text-emerald-900 font-semibold">
-                            {fmtLocalDate(consultationDate)} at {fmtLocalTime(consultationDate)}
-                        </p>
-                    </div>
-                )}
-                {v === "rescheduled" && (
-                    <div className="mt-6 space-y-3">
-                        {consultationDate && (
-                            <div className="rounded-xl border border-blue-200 bg-blue-50 px-4 py-3">
-                                <p className="text-[10px] font-bold tracking-[0.15em] text-blue-700 uppercase mb-1">New Schedule</p>
-                                <p className="text-sm text-blue-900 font-semibold">
-                                    {fmtLocalDate(consultationDate)} at {fmtLocalTime(consultationDate)}
-                                </p>
-                            </div>
-                        )}
-                        {rescheduleReason?.trim() && (
-                            <div className="rounded-xl border border-blue-200 bg-blue-50 px-4 py-3">
-                                <p className="text-[10px] font-bold tracking-[0.15em] text-blue-700 uppercase mb-1">Reason</p>
-                                <p className="text-sm text-blue-900 leading-relaxed">{rescheduleReason}</p>
-                            </div>
-                        )}
-                    </div>
-                )}
-                {v === "cancelled" && (
-                    <div className="mt-6 rounded-xl border border-red-200 bg-red-50 px-4 py-3">
-                        <p className="text-[10px] font-bold tracking-[0.15em] text-red-700 uppercase mb-1">Appointment Cancelled</p>
-                        <p className="text-sm text-red-700">
-                            Your appointment has been cancelled. You may book a new consultation anytime.
-                        </p>
-                    </div>
-                )}
-                {v === "pending" && (
-                    <div className="mt-6 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3">
-                        <p className="text-[10px] font-bold tracking-[0.15em] text-amber-700 uppercase mb-1">Awaiting Review</p>
-                        <p className="text-sm text-amber-800">Our team will review and confirm your appointment within 1–2 business days.</p>
-                    </div>
-                )}
-            </div>
-        </section>
-    );
-}
-
-// ── Sub-components ────────────────────────────────────────────────────────────
+// ── Sub-components ─────────────────────────────────────────────────────────
 function ModalShell({ children, onClose }) {
     return (
         <div className="fixed inset-0 z-[100] flex items-center justify-center px-4">
@@ -704,11 +706,20 @@ function FieldRow({ label, value }) {
         </div>
     );
 }
+function TimelineStep({ label, active }) {
+    return (
+        <div className="rounded-2xl border border-neutral-200 bg-neutral-50/50 p-4 flex items-center gap-3">
+            <div className={`w-3 h-3 rounded-full ${active ? "bg-neutral-900" : "bg-neutral-300"}`} />
+            <p className="text-sm font-bold text-neutral-800">{label}</p>
+        </div>
+    );
+}
 function DashboardInput({ label, type = "text", value, onChange, min }) {
     return (
         <div>
             <label className="block text-[10px] font-bold tracking-[0.15em] text-neutral-400 uppercase mb-3">{label}</label>
-            <input type={type} value={value} onChange={onChange} min={min} className="w-full rounded-xl border border-neutral-200 bg-white px-4 py-3 text-sm text-neutral-900 outline-none focus:border-black transition-colors" />
+            <input type={type} value={value} onChange={onChange} min={min}
+                className="w-full rounded-xl border border-neutral-200 bg-white px-4 py-3 text-sm text-neutral-900 outline-none focus:border-black transition-colors" />
         </div>
     );
 }
@@ -716,9 +727,13 @@ function DashboardSelect({ label, value, onChange, options }) {
     return (
         <div>
             <label className="block text-[10px] font-bold tracking-[0.15em] text-neutral-400 uppercase mb-3">{label}</label>
-            <select value={value} onChange={onChange} className="w-full rounded-xl border border-neutral-200 bg-white px-4 py-3 text-sm text-neutral-900 outline-none focus:border-black transition-colors">
+            <select value={value} onChange={onChange}
+                className="w-full rounded-xl border border-neutral-200 bg-white px-4 py-3 text-sm text-neutral-900 outline-none focus:border-black transition-colors">
                 <option value="">Select {label}</option>
-                {options.map((o) => typeof o === "string" ? <option key={o} value={o}>{o}</option> : <option key={o.value} value={o.value}>{o.label}</option>)}
+                {options.map((o) => typeof o === "string"
+                    ? <option key={o} value={o}>{o}</option>
+                    : <option key={o.value} value={o.value}>{o.label}</option>
+                )}
             </select>
         </div>
     );
@@ -727,13 +742,26 @@ function DashboardTextarea({ label, value, onChange, rows = 4 }) {
     return (
         <div>
             <label className="block text-[10px] font-bold tracking-[0.15em] text-neutral-400 uppercase mb-3">{label}</label>
-            <textarea rows={rows} value={value} onChange={onChange} className="w-full rounded-xl border border-neutral-200 bg-white px-4 py-3 text-sm text-neutral-900 outline-none resize-none focus:border-black transition-colors" />
+            <textarea rows={rows} value={value} onChange={onChange}
+                className="w-full rounded-xl border border-neutral-200 bg-white px-4 py-3 text-sm text-neutral-900 outline-none resize-none focus:border-black transition-colors" />
         </div>
     );
 }
-function BellIcon({ className = "w-5 h-5" }) { return <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" className={className}><path d="M6.3 8.8a5.7 5.7 0 1 1 11.4 0c0 6.65 2.85 7.6 2.85 7.6H3.45s2.85-.95 2.85-7.6" strokeLinecap="round" strokeLinejoin="round" /><path d="M10 19a2 2 0 0 0 4 0" strokeLinecap="round" /></svg>; }
-function ChevronDownIcon({ className = "w-4 h-4" }) { return <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}><path d="m6 9 6 6 6-6" /></svg>; }
-function CalendarIcon({ className = "w-5 h-5" }) { return <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" className={className}><rect x="3" y="4" width="18" height="18" rx="2" ry="2" /><line x1="16" y1="2" x2="16" y2="6" strokeLinecap="round" /><line x1="8" y1="2" x2="8" y2="6" strokeLinecap="round" /><line x1="3" y1="10" x2="21" y2="10" /></svg>; }
-function ClockIcon({ className = "w-5 h-5" }) { return <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" className={className}><circle cx="12" cy="12" r="9" /><path d="M12 7v5l3 2" strokeLinecap="round" strokeLinejoin="round" /></svg>; }
-function ActivityIcon({ className = "w-5 h-5" }) { return <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" className={className}><polyline points="22 12 18 12 15 21 9 3 6 12 2 12" /></svg>; }
-function LogoutIcon({ className = "w-5 h-5" }) { return <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" className={className}><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" /><path d="M16 17l5-5-5-5" /><path d="M21 12H9" /></svg>; }
+function BellIcon({ className = "w-5 h-5" }) {
+    return <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" className={className}><path d="M6.3 8.8a5.7 5.7 0 1 1 11.4 0c0 6.65 2.85 7.6 2.85 7.6H3.45s2.85-.95 2.85-7.6" strokeLinecap="round" strokeLinejoin="round" /><path d="M10 19a2 2 0 0 0 4 0" strokeLinecap="round" /></svg>;
+}
+function ChevronDownIcon({ className = "w-4 h-4" }) {
+    return <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}><path d="m6 9 6 6 6-6" /></svg>;
+}
+function CalendarIcon({ className = "w-5 h-5" }) {
+    return <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" className={className}><rect x="3" y="4" width="18" height="18" rx="2" ry="2" /><line x1="16" y1="2" x2="16" y2="6" strokeLinecap="round" /><line x1="8" y1="2" x2="8" y2="6" strokeLinecap="round" /><line x1="3" y1="10" x2="21" y2="10" /></svg>;
+}
+function ClockIcon({ className = "w-5 h-5" }) {
+    return <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" className={className}><circle cx="12" cy="12" r="9" /><path d="M12 7v5l3 2" strokeLinecap="round" strokeLinejoin="round" /></svg>;
+}
+function ActivityIcon({ className = "w-5 h-5" }) {
+    return <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" className={className}><polyline points="22 12 18 12 15 21 9 3 6 12 2 12" /></svg>;
+}
+function LogoutIcon({ className = "w-5 h-5" }) {
+    return <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" className={className}><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" /><path d="M16 17l5-5-5-5" /><path d="M21 12H9" /></svg>;
+}

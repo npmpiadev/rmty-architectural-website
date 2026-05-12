@@ -42,6 +42,12 @@ export default function Footer() {
                             SERVICES
                         </Link>
                         <Link
+                            to="/appointment"
+                            className="hover:opacity-70 transition"
+                        >
+                            APPOINTMENT
+                        </Link>
+                        <Link
                             to="/contact"
                             className="hover:opacity-70 transition"
                         >
@@ -58,14 +64,12 @@ export default function Footer() {
                     </div>
 
                     <div className="md:text-right text-[#666]">
-                        <p className="text-xl md:text-xl font-medium tracking-wide text-[#555]">
-                            (+63) 915 896 2275
+                        <p className="text-sm font-medium tracking-wide text-[#555]">
+                            rmty.architects@gmail.com
                         </p>
 
                         <p className="mt-3 text-sm leading-relaxed tracking-wide text-[#555]">
-                            911 JOSEFINA 2 SAMPALOC, MANILA,
-                            <br />
-                            PHILIPPINES, 1008
+                            MANILA, PHILIPPINES, 1008
                         </p>
 
                         <div className="mt-4 flex md:justify-end gap-4 text-[#444]">

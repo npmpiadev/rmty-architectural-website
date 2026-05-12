@@ -102,7 +102,7 @@ export default function Services() {
                 <div className="mx-auto max-w-screen-2xl px-6 pt-36 pb-20 md:pt-44 md:pb-24 min-h-[400px] md:min-h-[400px]">
                     <div className="grid grid-cols-1 gap-10 md:grid-cols-2 md:items-start">
                         <div className="space-y-1">
-                            <h1 className="text-4xl font-bold tracking-tight text-black md:text-6xl uppercase whitespace-pre-line">
+                            <h1 className="text-4xl font-bold tracking-tight text-black md:text-5xl uppercase whitespace-pre-line">
                                 {hero.title || "DESIGNING WITH INTENTIONS"}
                             </h1>
                         </div>
