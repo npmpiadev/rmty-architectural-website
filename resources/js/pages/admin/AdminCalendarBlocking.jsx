@@ -29,7 +29,6 @@ const TIME_SLOTS = (() => {
 })();
 
 const springTransition = { type: "spring", damping: 25, stiffness: 300 };
-const smoothEase = [0.22, 1, 0.36, 1];
 
 const formatDate = (date) => {
     const y = date.getFullYear();
@@ -38,7 +37,7 @@ const formatDate = (date) => {
     return `${y}-${m}-${d}`;
 };
 
-const MAX_VISIBLE_EVENTS = 3; // max pills shown per day cell before "+N more"
+const MAX_VISIBLE_EVENTS = 3;
 
 const fmtTime12 = (t) => {
     if (!t) return "";
@@ -88,27 +87,42 @@ export default function AdminCalendarBlocking() {
         return () => document.removeEventListener("mousedown", handler);
     }, [popoverDate]);
 
-    /* ── Fetch data ── */
+    /* ── Fetch data with proper auth headers ── */
     const fetchSlots = async (showLoading = false) => {
         if (showLoading) setLoading(true);
         try {
             const [blockedRes, bookedRes] = await Promise.all([
                 fetch(`${API_BASE}/api/admin/blocked-slots`, {
+                    method: "GET",
                     credentials: "include",
-                    headers: getAuthHeaders(),
+                    headers: {
+                        ...getAuthHeaders(),
+                        "Accept": "application/json",
+                    },
                 }),
                 fetch(`${API_BASE}/api/booked-slots`, {
-                    credentials: "include",
-                    headers: getAuthHeaders(),
+                    method: "GET",
+                    headers: {
+                        "Accept": "application/json",
+                    },
                 }),
             ]);
+
             if (blockedRes.ok) {
                 const data = await blockedRes.json();
                 setBlockedSlots(Array.isArray(data) ? data : []);
+            } else {
+                console.error("Blocked slots fetch failed:", await blockedRes.text());
             }
+
             if (bookedRes.ok) {
                 const data = await bookedRes.json();
-                setBookedSlots(Array.isArray(data) ? data : []);
+               const primaries = Array.isArray(data)
+                    ? data
+                    : [];
+                setBookedSlots(primaries);
+            } else {
+                console.error("Booked slots fetch failed:", await bookedRes.text());
             }
         } catch (err) {
             console.error("Failed to fetch slots:", err);
@@ -119,9 +133,14 @@ export default function AdminCalendarBlocking() {
 
     useEffect(() => {
         (async () => {
-            try { await fetch("/sanctum/csrf-cookie", { credentials: "include" }); } catch {}
+            try {
+                await fetch(`${API_BASE}/sanctum/csrf-cookie`, { credentials: "include" });
+            } catch {}
             await fetchSlots(true);
         })();
+
+        const interval = setInterval(() => fetchSlots(false), 30000);
+        return () => clearInterval(interval);
     }, []);
 
     /* ── Calendar days ── */
@@ -134,11 +153,14 @@ export default function AdminCalendarBlocking() {
         return days;
     }, [currentYear, currentMonth]);
 
-    const isPrevDisabled = viewDate.getFullYear() === today.getFullYear() && viewDate.getMonth() <= today.getMonth();
+    const isPrevDisabled =
+        viewDate.getFullYear() === today.getFullYear() &&
+        viewDate.getMonth() <= today.getMonth();
+
     const isPastDate = (date) => !date || date < today;
 
-    /* ── Helpers to check slot status ── */
-    const normDate = (s) => (s?.blocked_date?.split("T")[0] || s?.blocked_date || "");
+    /* ── Helpers ── */
+    const normDate = (s) => s?.blocked_date?.split("T")[0] || s?.blocked_date || "";
 
     const isBlocked = (dateStr, time) =>
         blockedSlots.some((s) => normDate(s) === dateStr && s.blocked_time === time);
@@ -152,25 +174,40 @@ export default function AdminCalendarBlocking() {
     const getBlockedCount = (dateStr) =>
         blockedSlots.filter((s) => normDate(s) === dateStr).length;
 
-    const getBookedCount = (dateStr) =>
-        bookedSlots.filter((s) => normDate(s) === dateStr).length;
-
     const getBookingsForDate = (dateStr) =>
-        bookedSlots.filter((s) => normDate(s) === dateStr).sort((a, b) => (a.blocked_time || "").localeCompare(b.blocked_time || ""));
+    bookedSlots
+        .filter((s) => normDate(s) === dateStr)
+        .sort((a, b) => (a.blocked_time || "").localeCompare(b.blocked_time || ""))
+        .map((slot) => {
 
-    const isDateFullyUnavailable = (dateStr) => {
-        const unavailable = getBlockedCount(dateStr) + getBookedCount(dateStr);
-        return unavailable >= TIME_SLOTS.length;
-    };
+            // blocked/admin slot
+            if (slot.type === "blocked") {
+                return {
+                    ...slot,
+                    client_name: "Admin Blocked",
+                };
+            }
+
+            // booked consultation
+            return {
+                ...slot,
+                client_name:
+                    slot.client_name ||
+                    slot.first_name && slot.last_name
+                        ? `${slot.first_name || ""} ${slot.last_name || ""}`.trim()
+                        : "Client",
+            };
+        });
 
     /* ── Block / Unblock ── */
     const toggleSlot = async (dateStr, time) => {
         if (isBooked(dateStr, time)) return;
         const wasBlocked = isBlocked(dateStr, time);
 
-        // Optimistic update
         if (wasBlocked) {
-            setBlockedSlots((prev) => prev.filter((s) => !(normDate(s) === dateStr && s.blocked_time === time)));
+            setBlockedSlots((prev) =>
+                prev.filter((s) => !(normDate(s) === dateStr && s.blocked_time === time))
+            );
             showToast("Slot unblocked");
         } else {
             setBlockedSlots((prev) => [...prev, { blocked_date: dateStr, blocked_time: time }]);
@@ -193,12 +230,10 @@ export default function AdminCalendarBlocking() {
                     body: JSON.stringify({ slots: [{ date: dateStr, time }] }),
                 });
             }
-            // Sync with server in background
-            fetchSlots();
+            await fetchSlots();
         } catch (err) {
             console.error(err);
-            // Revert on error
-            fetchSlots();
+            await fetchSlots();
             showToast("Something went wrong — reverted");
         }
     };
@@ -210,7 +245,6 @@ export default function AdminCalendarBlocking() {
 
         if (slotsToBlock.length === 0) return;
 
-        // Optimistic update
         setBlockedSlots((prev) => [
             ...prev,
             ...slotsToBlock.map((s) => ({ blocked_date: s.date, blocked_time: s.time })),
@@ -224,10 +258,10 @@ export default function AdminCalendarBlocking() {
                 headers: { ...getAuthHeaders(), "Content-Type": "application/json" },
                 body: JSON.stringify({ slots: slotsToBlock }),
             });
-            fetchSlots();
+            await fetchSlots();
         } catch (err) {
             console.error(err);
-            fetchSlots();
+            await fetchSlots();
             showToast("Something went wrong — reverted");
         }
     };
@@ -238,12 +272,13 @@ export default function AdminCalendarBlocking() {
         );
         if (blockedForDate.length === 0) return;
 
-        // Optimistic update — remove all blocked for this date instantly
         const idsToRemove = new Set(blockedForDate.map((s) => s.id).filter(Boolean));
-        setBlockedSlots((prev) => prev.filter((s) => {
-            if (idsToRemove.size > 0) return !idsToRemove.has(s.id);
-            return normDate(s) !== dateStr;
-        }));
+        setBlockedSlots((prev) =>
+            prev.filter((s) => {
+                if (idsToRemove.size > 0) return !idsToRemove.has(s.id);
+                return normDate(s) !== dateStr;
+            })
+        );
         showToast(`Unblocked ${blockedForDate.length} slot(s)`);
 
         try {
@@ -256,37 +291,51 @@ export default function AdminCalendarBlocking() {
                     })
                 )
             );
-            fetchSlots();
+            await fetchSlots();
         } catch (err) {
             console.error(err);
-            fetchSlots();
+            await fetchSlots();
             showToast("Something went wrong — reverted");
         }
     };
 
-    /* ── Selected date label ── */
+    /* ── Labels & Stats ── */
     const selectedDateLabel = selectedDate
         ? new Date(selectedDate).toLocaleDateString("en-US", {
-              weekday: "long", month: "long", day: "numeric",
+              weekday: "long",
+              month: "long",
+              day: "numeric",
           })
         : "Select a date";
 
-    /* ── Stats ── */
     const totalBlocked = blockedSlots.length;
     const totalBooked = bookedSlots.length;
     const todayStr = formatDate(today);
     const appointmentsToday = bookedSlots.filter((s) => normDate(s) === todayStr).length;
 
     const statCards = [
-        { label: "Blocked Slots", value: totalBlocked, icon: <BanIcon className="w-5 h-5 text-red-500" /> },
-        { label: "Booked Slots", value: totalBooked, icon: <CalendarIcon className="w-5 h-5 text-blue-500" /> },
-        { label: "Today's Appointments", value: appointmentsToday, icon: <ClockIcon className="w-5 h-5 text-emerald-500" /> },
-        { label: "Total Unavailable", value: totalBlocked + totalBooked, icon: <LockIcon className="w-5 h-5 text-neutral-500" /> },
+        { label: "Blocked Slots",       value: totalBlocked,               icon: <BanIcon      className="w-5 h-5 text-red-500" /> },
+        { label: "Booked Slots",         value: totalBooked,                icon: <CalendarIcon className="w-5 h-5 text-blue-500" /> },
+        { label: "Today's Appointments", value: appointmentsToday,          icon: <ClockIcon    className="w-5 h-5 text-emerald-500" /> },
+        { label: "Total Unavailable",    value: totalBlocked + totalBooked, icon: <LockIcon     className="w-5 h-5 text-neutral-500" /> },
     ];
 
-    /* ── Appointments for selected date ── */
-    const selectedDateBookings = selectedDate ? getBookingsForDate(selectedDate) : [];
+    const selectedDateBookings = selectedDate
+    ? getBookingsForDate(selectedDate)
+        .filter((b) => !b.is_buffer)
+    : [];
     const isSelectedPast = selectedDate ? new Date(selectedDate) < today : false;
+
+    if (loading) {
+        return (
+            <div className="flex flex-col items-center justify-center min-h-[400px] gap-4 [font-family:var(--font-neue)]">
+                <div className="w-8 h-8 border-4 border-neutral-200 border-t-black rounded-full animate-spin" />
+                <p className="text-[10px] font-bold tracking-widest text-neutral-400 uppercase">
+                    Loading Calendar
+                </p>
+            </div>
+        );
+    }
 
     return (
         <div className="flex flex-col [font-family:var(--font-neue)] relative pb-10">
@@ -305,14 +354,13 @@ export default function AdminCalendarBlocking() {
                 )}
             </AnimatePresence>
 
-            {/* Header */}
+            {/* Header / Stats */}
             <div className="mb-6 lg:mb-8">
                 <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-6">
                     <p className="text-sm font-medium text-neutral-500">
                         Block time slots to prevent clients from booking. Already booked slots are shown as unavailable.
                     </p>
                 </div>
-
                 <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
                     {statCards.map((s) => (
                         <div
@@ -331,7 +379,7 @@ export default function AdminCalendarBlocking() {
                 </div>
             </div>
 
-            {/* ═══════════ MONTH CALENDAR GRID (Apple Calendar Style) ═══════════ */}
+            {/* ═══════════ MONTH CALENDAR GRID ═══════════ */}
             <div className="rounded-2xl border border-neutral-200 bg-white overflow-visible">
                 {/* Month header + nav */}
                 <div className="flex items-center justify-between px-6 py-5 border-b border-neutral-100">
@@ -342,7 +390,7 @@ export default function AdminCalendarBlocking() {
                         <button
                             onClick={() => {
                                 const t = new Date();
-                                t.setHours(0,0,0,0);
+                                t.setHours(0, 0, 0, 0);
                                 setViewDate(new Date(t.getFullYear(), t.getMonth(), 1));
                                 setSelectedDate(formatDate(t));
                             }}
@@ -355,7 +403,9 @@ export default function AdminCalendarBlocking() {
                             onClick={() => setViewDate(new Date(currentYear, currentMonth - 1, 1))}
                             disabled={isPrevDisabled}
                             type="button"
-                            className={`p-2 rounded-lg transition-colors cursor-pointer ${isPrevDisabled ? "opacity-20 cursor-not-allowed" : "hover:bg-neutral-100"}`}
+                            className={`p-2 rounded-lg transition-colors cursor-pointer ${
+                                isPrevDisabled ? "opacity-20 cursor-not-allowed" : "hover:bg-neutral-100"
+                            }`}
                         >
                             <ChevronLeftIcon className="w-4 h-4" />
                         </button>
@@ -372,13 +422,16 @@ export default function AdminCalendarBlocking() {
                 {/* Day of week headers */}
                 <div className="grid grid-cols-7 border-b border-neutral-100 bg-neutral-50/60">
                     {DAYS_OF_WEEK.map((day) => (
-                        <div key={day} className="text-[10px] font-bold tracking-[0.15em] text-neutral-400 text-center py-2.5 uppercase">
+                        <div
+                            key={day}
+                            className="text-[10px] font-bold tracking-[0.15em] text-neutral-400 text-center py-2.5 uppercase"
+                        >
                             {day}
                         </div>
                     ))}
                 </div>
 
-                {/* Day cells grid */}
+                {/* Day cells */}
                 <div className="grid grid-cols-7 auto-rows-fr" style={{ overflow: "visible" }}>
                     {calendarDays.map((date, idx) => {
                         const dateStr = date ? formatDate(date) : null;
@@ -386,38 +439,51 @@ export default function AdminCalendarBlocking() {
                         const selected = dateStr === selectedDate;
                         const isToday = date && date.getTime() === today.getTime();
 
-                        // get events for this date
-                        const bookings = dateStr ? getBookingsForDate(dateStr) : [];
+                        const bookings = dateStr
+                                    ? getBookingsForDate(dateStr)
+                                        .filter((b) => !b.is_buffer)
+                                    : [];
                         const blockedCount = dateStr ? getBlockedCount(dateStr) : 0;
 
-                        // build event list: bookings first, then blocked summary
                         const events = [];
                         bookings.forEach((b) => {
                             events.push({
-                                type: "booked",
-                                label: b.client_name || "Booked",
-                                time: fmtTime12(b.blocked_time),
+                                type: b.type === "blocked" ? "blocked" : "booked",
+
+                                label:
+                                    b.type === "blocked"
+                                        ? `Blocked • ${fmtTime12(b.blocked_time)}`
+                                        : `${b.client_name || "Client"} • ${fmtTime12(b.blocked_time)}`,
+
+                                time:
+                                    b.type === "blocked"
+                                        ? "Blocked"
+                                        : b.is_buffer
+                                            ? "Buffer"
+                                            : "Booked",
+
                                 data: b,
                             });
                         });
                         if (blockedCount > 0) {
                             events.push({
-                                type: "blocked",
-                                label: `${blockedCount} blocked`,
-                                time: "",
-                                data: null,
-                            });
+    type: "blocked",
+    label: `${blockedCount} Blocked`, time: "", data: null });
                         }
 
                         const visible = events.slice(0, MAX_VISIBLE_EVENTS);
                         const overflow = events.length - MAX_VISIBLE_EVENTS;
-
                         const isPopoverOpen = popoverDate === dateStr;
 
                         return (
                             <div
                                 key={idx}
-                                onClick={() => { if (date) { setSelectedDate(dateStr); setPopoverDate(null); } }}
+                                onClick={() => {
+                                    if (date) {
+                                        setSelectedDate(dateStr);
+                                        setPopoverDate(null);
+                                    }
+                                }}
                                 className={`
                                     min-h-[120px] border-b border-r border-neutral-100 p-1.5 flex flex-col transition-colors relative
                                     ${!date ? "bg-neutral-50/40" : "cursor-pointer hover:bg-blue-50/30"}
@@ -427,7 +493,6 @@ export default function AdminCalendarBlocking() {
                             >
                                 {date && (
                                     <>
-                                        {/* Day number */}
                                         <div className="flex items-center justify-between mb-1">
                                             <span
                                                 className={`
@@ -441,12 +506,11 @@ export default function AdminCalendarBlocking() {
                                             </span>
                                             {bookings.length > 0 && (
                                                 <span className="text-[9px] font-bold text-blue-500 bg-blue-50 rounded px-1">
-                                                    {bookings.length}
+                                                    {bookings.filter((b) => b.type !== "blocked").length}
                                                 </span>
                                             )}
                                         </div>
 
-                                        {/* Event pills */}
                                         <div className="flex flex-col gap-[3px] flex-1 min-w-0">
                                             {visible.map((ev, i) => (
                                                 <div
@@ -467,9 +531,15 @@ export default function AdminCalendarBlocking() {
                                                         }
                                                         ${past && ev.type !== "booked" ? "opacity-40" : ""}
                                                     `}
-                                                    title={ev.type === "booked" ? `${ev.time} — ${ev.label}` : ev.label}
+                                                    title={
+                                                        ev.type === "booked"
+                                                            ? `${ev.time} — ${ev.label}`
+                                                            : ev.label
+                                                    }
                                                 >
-                                                    {ev.time && <span className="mr-0.5 font-medium">{ev.time}</span>}
+                                                    {ev.time && (
+                                                        <span className="mr-0.5 font-medium">{ev.time}</span>
+                                                    )}
                                                     {ev.label}
                                                 </div>
                                             ))}
@@ -486,7 +556,7 @@ export default function AdminCalendarBlocking() {
                                             )}
                                         </div>
 
-                                        {/* Popover — all clients for this day */}
+                                        {/* Popover */}
                                         {isPopoverOpen && events.length > 0 && (
                                             <div
                                                 ref={popoverRef}
@@ -495,7 +565,12 @@ export default function AdminCalendarBlocking() {
                                             >
                                                 <div className="px-4 py-3 border-b border-neutral-100 bg-neutral-50/60 sticky top-0">
                                                     <p className="text-[10px] font-bold tracking-[0.15em] text-neutral-500 uppercase">
-                                                        {date.toLocaleDateString("en-US", { month: "short", day: "numeric" })} — {bookings.length} client{bookings.length !== 1 ? "s" : ""}
+                                                        {date.toLocaleDateString("en-US", {
+                                                            month: "short",
+                                                            day: "numeric",
+                                                        })}{" "}
+                                                        — {bookings.length} client
+                                                        {bookings.length !== 1 ? "s" : ""}
                                                     </p>
                                                 </div>
                                                 <div className="divide-y divide-neutral-100">
@@ -509,30 +584,46 @@ export default function AdminCalendarBlocking() {
                                                                 }
                                                             }}
                                                             className={`px-4 py-2.5 flex items-center gap-3 transition-colors ${
-                                                                ev.type === "booked" ? "cursor-pointer hover:bg-blue-50" : ""
+                                                                ev.type === "booked"
+                                                                    ? "cursor-pointer hover:bg-blue-50"
+                                                                    : ""
                                                             }`}
                                                         >
                                                             {ev.type === "booked" ? (
                                                                 <>
                                                                     <img
-                                                                        src={`https://ui-avatars.com/api/?name=${encodeURIComponent(ev.label)}&background=dbeafe&color=1d4ed8&rounded=true&size=28`}
+                                                                        src={`https://ui-avatars.com/api/?name=${encodeURIComponent(
+                                                                            ev.data?.client_name || "Client"
+                                                                        )}&background=dbeafe&color=1d4ed8&rounded=true&size=28`}
                                                                         alt=""
                                                                         className="w-7 h-7 rounded-full shrink-0"
                                                                     />
+
                                                                     <div className="min-w-0 flex-1">
-                                                                        <p className="text-xs font-bold text-neutral-900 truncate">{ev.label}</p>
-                                                                        <p className="text-[10px] font-medium text-neutral-400">{ev.time}</p>
-                                                                    </div>
-                                                                    <span className={`shrink-0 px-1.5 py-0.5 text-[8px] font-bold tracking-wider uppercase rounded border ${
-                                                                        ev.data?.status === "accepted" ? "border-emerald-200 bg-emerald-50 text-emerald-600" :
-                                                                        ev.data?.status === "rescheduled" ? "border-blue-200 bg-blue-50 text-blue-600" :
-                                                                        "border-amber-200 bg-amber-50 text-amber-600"
-                                                                    }`}>
+                                                                        <p className="text-xs font-bold text-neutral-900 truncate">
+                                                                            {ev.data?.client_name || "Client"}
+                                                                        </p>
+
+                                                                        <p className="text-[10px] font-medium text-neutral-400">
+                                                                            {fmtTime12(ev.data?.blocked_time)}
+                                                                        </p>
+                                                        </div>
+                                                                    <span
+                                                                        className={`shrink-0 px-1.5 py-0.5 text-[8px] font-bold tracking-wider uppercase rounded border ${
+                                                                            ev.data?.status === "accepted"
+                                                                                ? "border-emerald-200 bg-emerald-50 text-emerald-600"
+                                                                                : ev.data?.status === "rescheduled"
+                                                                                ? "border-blue-200 bg-blue-50 text-blue-600"
+                                                                                : "border-amber-200 bg-amber-50 text-amber-600"
+                                                                        }`}
+                                                                    >
                                                                         {ev.data?.status || "pending"}
                                                                     </span>
                                                                 </>
                                                             ) : (
-                                                                <span className="text-[10px] font-bold text-red-400 uppercase tracking-wider">{ev.label}</span>
+                                                                <span className="text-[10px] font-bold text-red-400 uppercase tracking-wider">
+                                                                    {ev.label}
+                                                                </span>
                                                             )}
                                                         </div>
                                                     ))}
@@ -550,22 +641,28 @@ export default function AdminCalendarBlocking() {
                 <div className="flex flex-wrap items-center gap-5 px-6 py-3 border-t border-neutral-100 bg-neutral-50/40">
                     <div className="flex items-center gap-1.5">
                         <span className="w-3 h-2 rounded-sm bg-blue-100 border border-blue-200" />
-                        <span className="text-[10px] font-bold tracking-widest text-neutral-400 uppercase">Booked</span>
+                        <span className="text-[10px] font-bold tracking-widest text-neutral-400 uppercase">
+                            Booked
+                        </span>
                     </div>
                     <div className="flex items-center gap-1.5">
                         <span className="w-3 h-2 rounded-sm bg-red-100 border border-red-200" />
-                        <span className="text-[10px] font-bold tracking-widest text-neutral-400 uppercase">Blocked</span>
+                        <span className="text-[10px] font-bold tracking-widest text-neutral-400 uppercase">
+                            Blocked
+                        </span>
                     </div>
                     <div className="flex items-center gap-1.5">
                         <span className="w-4 h-4 rounded-full bg-black flex items-center justify-center">
                             <span className="w-1.5 h-1.5 rounded-full bg-white" />
                         </span>
-                        <span className="text-[10px] font-bold tracking-widest text-neutral-400 uppercase">Today</span>
+                        <span className="text-[10px] font-bold tracking-widest text-neutral-400 uppercase">
+                            Today
+                        </span>
                     </div>
                 </div>
             </div>
 
-            {/* ═══════════ TIME SLOTS PANEL (shows when a date is selected) ═══════════ */}
+            {/* ═══════════ TIME SLOTS PANEL ═══════════ */}
             <AnimatePresence>
                 {selectedDate && (
                     <motion.div
@@ -618,7 +715,9 @@ export default function AdminCalendarBlocking() {
                                 const blocked = isBlocked(selectedDate, slot.value);
                                 const booked = isBooked(selectedDate, slot.value);
                                 const unavailable = blocked || booked;
-                                const booking = booked ? getBookingForSlot(selectedDate, slot.value) : null;
+                                const booking = booked
+                                    ? getBookingForSlot(selectedDate, slot.value)
+                                    : null;
                                 const canToggle = !isSelectedPast && !booked;
 
                                 return (
@@ -638,8 +737,8 @@ export default function AdminCalendarBlocking() {
                                             ${booked
                                                 ? "bg-blue-50 text-blue-600 border border-blue-200 cursor-pointer hover:bg-blue-100"
                                                 : blocked
-                                                    ? `bg-red-50 text-red-500 border border-red-300 ${canToggle ? "cursor-pointer hover:bg-red-100" : "opacity-50"}`
-                                                    : `bg-transparent border border-neutral-200 ${canToggle ? "text-black hover:border-black cursor-pointer" : "text-neutral-300 opacity-50"}`
+                                                ? `bg-red-50 text-red-500 border border-red-300 ${canToggle ? "cursor-pointer hover:bg-red-100" : "opacity-50"}`
+                                                : `bg-transparent border border-neutral-200 ${canToggle ? "text-black hover:border-black cursor-pointer" : "text-neutral-300 opacity-50"}`
                                             }
                                             ${updating && !booked ? "opacity-50 pointer-events-none" : ""}
                                         `}
@@ -653,9 +752,11 @@ export default function AdminCalendarBlocking() {
                                             )}
                                         </div>
                                         {booked && (
-                                            <span className="text-[9px] tracking-[0.1em] bg-blue-100 text-blue-500 px-2 py-0.5 rounded">
-                                                BOOKED
-                                            </span>
+                                            <span className="text-[10px] font-bold tracking-widest text-neutral-400 uppercase">
+                                                    {booking.type === "blocked"
+                                                        ? "Blocked"
+                                                        : "Booked"}
+                                                </span>
                                         )}
                                         {blocked && !booked && (
                                             <span className="text-[9px] tracking-[0.1em] bg-red-100 text-red-500 px-2 py-0.5 rounded">
@@ -680,7 +781,12 @@ export default function AdminCalendarBlocking() {
                 <div className="mt-6 rounded-2xl border border-neutral-200 bg-white overflow-hidden">
                     <div className="px-6 py-4 border-b border-neutral-100 bg-neutral-50/50">
                         <h3 className="text-[11px] font-bold tracking-[0.2em] uppercase text-neutral-600">
-                            Appointments on {new Date(selectedDate).toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric" })}
+                            Appointments on{" "}
+                            {new Date(selectedDate).toLocaleDateString("en-US", {
+                                weekday: "long",
+                                month: "long",
+                                day: "numeric",
+                            })}
                         </h3>
                     </div>
                     <div className="divide-y divide-neutral-100">
@@ -691,8 +797,8 @@ export default function AdminCalendarBlocking() {
                             const ampm = hour < 12 ? "AM" : "PM";
                             const timeLabel = `${hour12}:${min} ${ampm}`;
                             const statusColors = {
-                                accepted: "bg-emerald-50 text-emerald-600 border-emerald-200",
-                                pending: "bg-amber-50 text-amber-600 border-amber-200",
+                                accepted:    "bg-emerald-50 text-emerald-600 border-emerald-200",
+                                pending:     "bg-amber-50 text-amber-600 border-amber-200",
                                 rescheduled: "bg-blue-50 text-blue-600 border-blue-200",
                             };
 
@@ -709,14 +815,24 @@ export default function AdminCalendarBlocking() {
                                             className="w-8 h-8 rounded-full shrink-0"
                                         />
                                         <div className="min-w-0">
-                                            <p className="text-sm font-bold text-neutral-900 truncate">{b.client_name}</p>
-                                            <p className="text-[11px] font-medium text-neutral-400 truncate">{b.email}</p>
+                                            <p className="text-sm font-bold text-neutral-900 truncate">
+                                                {b.client_name}
+                                            </p>
+                                            <p className="text-[11px] font-medium text-neutral-400 truncate">
+                                                {b.email}
+                                            </p>
                                         </div>
                                     </div>
                                     <div className="flex items-center gap-3 shrink-0">
                                         <span className="text-xs font-bold text-neutral-600">{timeLabel}</span>
-                                        <span className={`px-2 py-0.5 text-[9px] font-bold tracking-widest uppercase rounded border ${statusColors[b.status] || statusColors.pending}`}>
-                                            {b.status}
+                                        <span
+                                            className={`px-2 py-0.5 text-[9px] font-bold tracking-widest uppercase rounded border ${
+                                                statusColors[b.status] || statusColors.pending
+                                            }`}
+                                        >
+                                            {b.type === "blocked"
+                                                ? "blocked"
+                                                : b.status}
                                         </span>
                                     </div>
                                 </div>
@@ -747,7 +863,9 @@ export default function AdminCalendarBlocking() {
                             className="fixed top-0 right-0 h-full w-full max-w-sm bg-white z-[80] flex flex-col border-l border-neutral-200 [font-family:var(--font-neue)]"
                         >
                             <div className="flex items-center justify-between px-6 py-5 border-b border-neutral-100 bg-neutral-50/50 shrink-0">
-                                <h3 className="text-sm font-bold text-neutral-900 uppercase tracking-widest">Appointment Details</h3>
+                                <h3 className="text-sm font-bold text-neutral-900 uppercase tracking-widest">
+                                    Appointment Details
+                                </h3>
                                 <button
                                     onClick={() => setSelectedBooking(null)}
                                     className="text-neutral-400 hover:text-black transition-colors cursor-pointer"
@@ -755,7 +873,8 @@ export default function AdminCalendarBlocking() {
                                     <CloseIcon className="w-5 h-5" />
                                 </button>
                             </div>
-                            <div className="flex-1 overflow-y-auto p-6 space-y-5 no-scrollbar">
+
+                            <div className="flex-1 overflow-y-auto p-6 space-y-5">
                                 <div className="flex items-center gap-4">
                                     <img
                                         src={`https://ui-avatars.com/api/?name=${encodeURIComponent(selectedBooking.client_name || "?")}&background=f3f4f6&color=000000&rounded=true&size=64`}
@@ -763,27 +882,45 @@ export default function AdminCalendarBlocking() {
                                         className="w-14 h-14 rounded-full shrink-0"
                                     />
                                     <div>
-                                        <p className="text-xl font-black text-neutral-900">{selectedBooking.client_name}</p>
-                                        <p className="text-sm font-medium text-neutral-500 mt-0.5">{selectedBooking.email}</p>
+                                        <p className="text-xl font-black text-neutral-900">
+                                            {selectedBooking.client_name}
+                                        </p>
+                                        <p className="text-sm font-medium text-neutral-500 mt-0.5">
+                                            {selectedBooking.email}
+                                        </p>
                                         {selectedBooking.phone && (
-                                            <p className="text-sm font-medium text-neutral-500 mt-0.5">{selectedBooking.phone}</p>
+                                            <p className="text-sm font-medium text-neutral-500 mt-0.5">
+                                                {selectedBooking.phone}
+                                            </p>
                                         )}
                                     </div>
                                 </div>
 
                                 <div className="grid grid-cols-2 gap-4">
                                     <div>
-                                        <p className="text-[10px] font-bold tracking-[0.15em] text-neutral-400 uppercase mb-2">Date</p>
+                                        <p className="text-[10px] font-bold tracking-[0.15em] text-neutral-400 uppercase mb-2">
+                                            Date
+                                        </p>
                                         <p className="text-sm font-bold text-neutral-900">
-                                            {new Date(selectedBooking.blocked_date).toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric", year: "numeric" })}
+                                            {new Date(selectedBooking.blocked_date).toLocaleDateString("en-US", {
+                                                weekday: "short",
+                                                month: "short",
+                                                day: "numeric",
+                                                year: "numeric",
+                                            })}
                                         </p>
                                     </div>
                                     <div>
-                                        <p className="text-[10px] font-bold tracking-[0.15em] text-neutral-400 uppercase mb-2">Time</p>
+                                        <p className="text-[10px] font-bold tracking-[0.15em] text-neutral-400 uppercase mb-2">
+                                            Time
+                                        </p>
                                         <p className="text-sm font-bold text-neutral-900">
                                             {(() => {
-                                                const h = parseInt(selectedBooking.blocked_time?.split(":")[0] || 0);
-                                                const m = selectedBooking.blocked_time?.split(":")[1] || "00";
+                                                const h = parseInt(
+                                                    selectedBooking.blocked_time?.split(":")[0] || 0
+                                                );
+                                                const m =
+                                                    selectedBooking.blocked_time?.split(":")[1] || "00";
                                                 return `${h % 12 || 12}:${m} ${h < 12 ? "AM" : "PM"}`;
                                             })()}
                                         </p>
@@ -792,21 +929,29 @@ export default function AdminCalendarBlocking() {
 
                                 <div className="grid grid-cols-2 gap-4">
                                     <div>
-                                        <p className="text-[10px] font-bold tracking-[0.15em] text-neutral-400 uppercase mb-2">Project Type</p>
+                                        <p className="text-[10px] font-bold tracking-[0.15em] text-neutral-400 uppercase mb-2">
+                                            Project Type
+                                        </p>
                                         <span className="inline-flex items-center px-2.5 py-1 rounded-md text-[10px] font-bold uppercase tracking-wider border bg-neutral-50 text-neutral-600 border-neutral-200">
                                             {selectedBooking.project_type || "N/A"}
                                         </span>
                                     </div>
                                     <div>
-                                        <p className="text-[10px] font-bold tracking-[0.15em] text-neutral-400 uppercase mb-2">Status</p>
+                                        <p className="text-[10px] font-bold tracking-[0.15em] text-neutral-400 uppercase mb-2">
+                                            Status
+                                        </p>
                                         {(() => {
                                             const colors = {
-                                                accepted: "border-emerald-200 bg-emerald-50 text-emerald-700",
-                                                pending: "border-amber-200 bg-amber-50 text-amber-700",
+                                                accepted:    "border-emerald-200 bg-emerald-50 text-emerald-700",
+                                                pending:     "border-amber-200 bg-amber-50 text-amber-700",
                                                 rescheduled: "border-blue-200 bg-blue-50 text-blue-700",
                                             };
                                             return (
-                                                <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-[10px] font-bold uppercase tracking-wider border ${colors[selectedBooking.status] || colors.pending}`}>
+                                                <span
+                                                    className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-[10px] font-bold uppercase tracking-wider border ${
+                                                        colors[selectedBooking.status] || colors.pending
+                                                    }`}
+                                                >
                                                     {selectedBooking.status}
                                                 </span>
                                             );
@@ -815,6 +960,7 @@ export default function AdminCalendarBlocking() {
                                 </div>
                             </div>
 
+                            {/* ✅ FIXED: was missing the opening <a tag */}
                             <div className="p-6 border-t border-neutral-100 bg-neutral-50/50 shrink-0">
                                 <a
                                     href="/admin/consultations"
@@ -850,7 +996,6 @@ function CalendarIcon({ className = "w-4 h-4" }) {
         </svg>
     );
 }
-
 function ClockIcon({ className = "w-4 h-4" }) {
     return (
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" className={className}>
@@ -859,7 +1004,6 @@ function ClockIcon({ className = "w-4 h-4" }) {
         </svg>
     );
 }
-
 function BanIcon({ className = "w-4 h-4" }) {
     return (
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" className={className}>
@@ -868,7 +1012,6 @@ function BanIcon({ className = "w-4 h-4" }) {
         </svg>
     );
 }
-
 function ChevronLeftIcon({ className = "w-4 h-4" }) {
     return (
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}>
@@ -876,7 +1019,6 @@ function ChevronLeftIcon({ className = "w-4 h-4" }) {
         </svg>
     );
 }
-
 function ChevronRightIcon({ className = "w-4 h-4" }) {
     return (
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}>
@@ -884,7 +1026,6 @@ function ChevronRightIcon({ className = "w-4 h-4" }) {
         </svg>
     );
 }
-
 function LockIcon({ className = "w-4 h-4" }) {
     return (
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" className={className}>
@@ -893,7 +1034,6 @@ function LockIcon({ className = "w-4 h-4" }) {
         </svg>
     );
 }
-
 function CloseIcon({ className = "w-4 h-4" }) {
     return (
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" className={className}>

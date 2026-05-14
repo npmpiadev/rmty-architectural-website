@@ -116,7 +116,7 @@ export default function Navbar({ onOpenMenu }) {
                         className="text-2xl md:text-5xl font-medium tracking-tight"
                     >
                         <img
-                            src="/images/rmty-logo-transparent.png"
+                            src="/images/rmty-LOGO.png"
                             alt="RMTY Designs Architects"
                             className="h-10 lg:h-16 w-auto object-contain block"
                         />

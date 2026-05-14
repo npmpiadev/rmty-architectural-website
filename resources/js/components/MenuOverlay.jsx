@@ -90,7 +90,7 @@ export default function MenuOverlay({ onClose }) {
 
                 <div className="justify-self-end">
                     <img
-                        src="/images/rmty-logo-transparent.png"
+                        src="/images/rmty-LOGO.png"
                         alt="RMTY Designs Architects"
                         className="h-10 lg:h-16 w-auto object-contain block"
                     />

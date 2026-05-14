@@ -162,7 +162,7 @@ function AdminSidebar({ isOpen, setIsOpen }) {
             <div className="px-8 py-10 flex items-center justify-between">
                 <div className="flex items-center gap-3">
                     <img
-                        src="/images/rmty-logo.jpg"
+                        src="/images/rmty-LOGO.png"
                         alt="RMTY Logo"
                         className="h-8 w-auto object-contain"
                     />

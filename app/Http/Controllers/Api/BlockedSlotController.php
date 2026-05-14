@@ -5,124 +5,199 @@ namespace App\Http\Controllers\Api;
 use App\Http\Controllers\Controller;
 use App\Models\BlockedSlot;
 use App\Models\Consultation;
-use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Http\JsonResponse;
+use Carbon\Carbon;
 
 class BlockedSlotController extends Controller
 {
-    // GET /api/admin/blocked-slots  (admin — list all)
+    // ADMIN LIST
     public function index(Request $request): JsonResponse
     {
-        $query = BlockedSlot::query()->orderBy('blocked_date')->orderBy('blocked_time');
+        $slots = BlockedSlot::orderBy('blocked_date')
+            ->orderBy('blocked_time')
+            ->get();
 
-        if ($from = $request->query('from')) {
-            $query->where('blocked_date', '>=', $from);
-        }
-        if ($to = $request->query('to')) {
-            $query->where('blocked_date', '<=', $to);
-        }
-
-        return response()->json($query->get());
+        return response()->json($slots);
     }
 
-    // POST /api/admin/blocked-slots  (admin — block one or more slots)
+    // BLOCK SLOT
     public function store(Request $request): JsonResponse
     {
         $validated = $request->validate([
-            'slots'          => 'required|array|min:1',
-            'slots.*.date'   => 'required|date',
-            'slots.*.time'   => 'required|string|max:5',
-            'slots.*.reason' => 'nullable|string|max:255',
+            'slots' => 'required|array|min:1',
+            'slots.*.date' => 'required|date',
+            'slots.*.time' => 'required|string',
         ]);
 
         $created = [];
 
         foreach ($validated['slots'] as $slot) {
-            $created[] = BlockedSlot::firstOrCreate(
-                [
-                    'blocked_date' => $slot['date'],
-                    'blocked_time' => $slot['time'],
-                ],
-                [
-                    'reason' => $slot['reason'] ?? null,
-                ]
-            );
+
+            $created[] = BlockedSlot::firstOrCreate([
+                'blocked_date' => $slot['date'],
+                'blocked_time' => $slot['time'],
+            ]);
         }
 
         return response()->json([
-            'message' => count($created) . ' slot(s) blocked.',
-            'data'    => $created,
-        ], 201);
+            'message' => 'Slots blocked successfully.',
+            'data' => $created,
+        ]);
     }
 
-    // DELETE /api/admin/blocked-slots/{id}  (admin — unblock single)
-    public function destroy(int $id): JsonResponse
+    // DELETE BY ID
+    public function destroy($id): JsonResponse
     {
         $slot = BlockedSlot::findOrFail($id);
+
         $slot->delete();
 
-        return response()->json(['message' => 'Slot unblocked.']);
+        return response()->json([
+            'message' => 'Slot unblocked.',
+        ]);
     }
 
-    // DELETE /api/admin/blocked-slots/by-date-time  (admin — unblock by date+time)
+    // DELETE BY DATE + TIME
     public function destroyByDateTime(Request $request): JsonResponse
     {
         $validated = $request->validate([
             'date' => 'required|date',
-            'time' => 'required|string|max:5',
+            'time' => 'required|string',
         ]);
 
-        $deleted = BlockedSlot::where('blocked_date', $validated['date'])
+        BlockedSlot::where('blocked_date', $validated['date'])
             ->where('blocked_time', $validated['time'])
             ->delete();
 
         return response()->json([
-            'message' => $deleted ? 'Slot unblocked.' : 'Slot not found.',
+            'message' => 'Slot unblocked.',
         ]);
     }
 
-    // GET /api/blocked-slots  (public — used by client calendar)
-    public function publicIndex(Request $request): JsonResponse
+    // PUBLIC BLOCKED
+    public function publicIndex(): JsonResponse
     {
-        $query = BlockedSlot::query()
-            ->where('blocked_date', '>=', now()->toDateString())
-            ->orderBy('blocked_date')
-            ->orderBy('blocked_time');
-
-        if ($from = $request->query('from')) {
-            $query->where('blocked_date', '>=', $from);
-        }
-        if ($to = $request->query('to')) {
-            $query->where('blocked_date', '<=', $to);
-        }
-
-        $slots = $query->get(['blocked_date', 'blocked_time']);
-
-        return response()->json($slots);
+        return response()->json(
+            BlockedSlot::orderBy('blocked_date')
+                ->orderBy('blocked_time')
+                ->get()
+        );
     }
 
-    // GET /api/booked-slots  (public — active consultations date+time)
-    public function bookedSlots(Request $request): JsonResponse
+    // MAIN UNAVAILABLE SLOTS
+    public function unavailableSlots(): JsonResponse
     {
-        $consultations = Consultation::whereIn('status', ['pending', 'accepted', 'rescheduled'])
-            ->where('is_published', true)
-            ->whereNotNull('consultation_date')
-            ->get(['id', 'first_name', 'last_name', 'email', 'phone', 'project_type', 'status', 'consultation_date']);
+        // ADMIN BLOCKED
+        $blocked = BlockedSlot::get()->map(function ($slot) {
 
-        $slots = $consultations->map(function ($c) {
-            $dt = \Carbon\Carbon::parse($c->consultation_date);
             return [
-                'blocked_date'  => $dt->toDateString(),
-                'blocked_time'  => $dt->format('H:i'),
-                'consultation_id' => $c->id,
-                'client_name'   => trim($c->first_name . ' ' . $c->last_name),
-                'email'         => $c->email,
-                'phone'         => $c->phone,
-                'project_type'  => $c->project_type,
-                'status'        => $c->status,
+                'blocked_date' => $slot->blocked_date,
+                'blocked_time' => $slot->blocked_time,
+                'type' => 'blocked',
+                'label' => 'Blocked',
+                'status' => 'blocked',
             ];
-        })->values();
+        });
 
-        return response()->json($slots);
+        // CONSULTATIONS
+        $consultations = Consultation::whereIn('status', [
+                'pending',
+                'accepted',
+                'rescheduled',
+            ])
+            ->where('is_published', 1)
+            ->whereNotNull('consultation_date')
+            ->get();
+
+        $booked = collect();
+
+        foreach ($consultations as $consultation) {
+
+            $start = Carbon::parse(
+                $consultation->consultation_date
+            );
+
+            // PRIMARY BOOKING
+            $booked->push([
+    'blocked_date' => $start->format('Y-m-d'),
+    'blocked_time' => $start->format('H:i'),
+
+    'type' => 'booked',
+    'status' => strtolower($consultation->status ?? 'accepted'),
+
+    'label' =>
+        trim(
+            ($consultation->first_name ?? '') . ' ' .
+            ($consultation->last_name ?? '')
+        ),
+
+    'client_name' =>
+        trim(
+            ($consultation->first_name ?? '') . ' ' .
+            ($consultation->last_name ?? '')
+        ),
+
+    'first_name' => $consultation->first_name,
+    'last_name' => $consultation->last_name,
+
+    'email' => $consultation->email,
+    'phone' => $consultation->phone,
+
+    'project_type' => $consultation->project_type,
+
+    'consultation_id' => $consultation->id,
+
+    'consultation_time' =>
+        $start->format('g:i A'),
+
+    'is_buffer' => false,
+]);
+
+            // 2-HOUR BUFFER
+            for ($i = 1; $i < 4; $i++) {
+
+                $buffer = $start
+                    ->copy()
+                    ->addMinutes($i * 30);
+
+                $booked->push([
+    'blocked_date' => $buffer->format('Y-m-d'),
+    'blocked_time' => $buffer->format('H:i'),
+
+    'type' => 'buffer',
+    'status' => 'buffer',
+
+    'label' => 'Unavailable',
+
+    'client_name' =>
+        trim(
+            ($consultation->first_name ?? '') . ' ' .
+            ($consultation->last_name ?? '')
+        ),
+
+    'first_name' => $consultation->first_name,
+    'last_name' => $consultation->last_name,
+
+    'email' => $consultation->email,
+    'phone' => $consultation->phone,
+
+    'project_type' => $consultation->project_type,
+
+    'consultation_id' => $consultation->id,
+
+    'consultation_time' =>
+        $start->format('g:i A'),
+
+    'is_buffer' => true,
+]);
+            }
+        }
+
+        return response()->json(
+            $blocked
+                ->merge($booked)
+                ->values()
+        );
     }
 }

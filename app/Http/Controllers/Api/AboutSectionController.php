@@ -6,9 +6,15 @@ use App\Http\Controllers\Controller;
 use App\Models\AboutSection;
 use App\Models\AdminActivity;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Storage;
 
 class AboutSectionController extends Controller
 {
+    private function cleanText($value): string
+    {
+        return trim((string) ($value ?? ''));
+    }
+
     public function index()
     {
         return AboutSection::where('is_published', true)
@@ -26,28 +32,32 @@ class AboutSectionController extends Controller
 
     public function store(Request $request)
     {
-        $data = $request->validate([
-            'title' => 'nullable|string', 
+        $validated = $request->validate([
+            'title' => 'nullable|string',
             'content' => 'nullable|string',
-            'is_published' => 'sometimes|boolean',
+            'is_published' => 'sometimes',
             'sort_order' => 'sometimes|integer|min:0',
+            'cover_image' => 'nullable|image|mimes:jpg,jpeg,png,webp',
         ]);
 
-        // THE FIX: Intercept Laravel's NULLs and force them to empty strings for MySQL
-        $data['title'] = $data['title'] ?? '';
-        $data['content'] = $data['content'] ?? '';
+        $maxSort = AboutSection::max('sort_order');
 
-        if (!isset($data['is_published'])) {
-            $data['is_published'] = true;
-        }
-        if (!array_key_exists('sort_order', $data)) {
-            $max = AboutSection::max('sort_order');
-            $data['sort_order'] = is_null($max) ? 0 : $max + 1;
-        }
+        $data = [
+            'title' => $this->cleanText($request->input('title')),
+            'content' => $this->cleanText($request->input('content')),
+            'is_published' => $request->has('is_published')
+                ? (bool) $request->input('is_published')
+                : true,
+            'sort_order' => $request->filled('sort_order')
+                ? (int) $request->input('sort_order')
+                : (is_null($maxSort) ? 0 : $maxSort + 1),
+            'image' => '',
+        ];
 
         if ($request->hasFile('cover_image')) {
-            $request->validate(['cover_image' => 'image|mimes:jpg,jpeg,png,webp']);
-            $data['image'] = $request->file('cover_image')->store('about', 'public');
+            $data['image'] = $request
+                ->file('cover_image')
+                ->store('about', 'public');
         }
 
         $section = AboutSection::create($data);
@@ -58,7 +68,9 @@ class AboutSectionController extends Controller
                 'action' => 'created',
                 'subject_type' => 'about_section',
                 'subject_id' => $section->id,
-                'subject_title' => $section->title !== '' ? $section->title : 'Section ' . $section->sort_order,
+                'subject_title' => $section->title !== ''
+                    ? $section->title
+                    : 'Section ' . $section->sort_order,
             ]);
         }
 
@@ -69,32 +81,53 @@ class AboutSectionController extends Controller
     {
         $section = AboutSection::findOrFail($id);
 
-        $data = $request->validate([
+        $validated = $request->validate([
             'title' => 'nullable|string',
             'content' => 'nullable|string',
-            'is_published' => 'sometimes|boolean',
+            'is_published' => 'sometimes',
             'sort_order' => 'sometimes|integer|min:0',
+            'cover_image' => 'nullable',
         ]);
 
-        // THE FIX: Intercept Laravel's NULLs and force them to empty strings for MySQL
-        if (array_key_exists('title', $data)) {
-            $data['title'] = $data['title'] ?? '';
-        }
-        if (array_key_exists('content', $data)) {
-            $data['content'] = $data['content'] ?? '';
+        $data = [
+            'title' => $this->cleanText($request->input('title')),
+            'content' => $this->cleanText($request->input('content')),
+            'is_published' => $request->has('is_published')
+                ? (bool) $request->input('is_published')
+                : $section->is_published,
+            'sort_order' => $request->filled('sort_order')
+                ? (int) $request->input('sort_order')
+                : $section->sort_order,
+        ];
+
+        // Upload new image
+        if ($request->hasFile('cover_image')) {
+
+            $request->validate([
+                'cover_image' => 'image|mimes:jpg,jpeg,png,webp',
+            ]);
+
+            if ($section->image) {
+                Storage::disk('public')->delete($section->image);
+            }
+
+            $data['image'] = $request
+                ->file('cover_image')
+                ->store('about', 'public');
         }
 
-        // Handle Image Logic
-        if ($request->hasFile('cover_image')) {
-            $request->validate(['cover_image' => 'image|mimes:jpg,jpeg,png,webp']);
-            $data['image'] = $request->file('cover_image')->store('about', 'public');
-            
-        } elseif ($request->input('cover_image') === 'REMOVE') {
-            // Because your DB might also hate NULL images, let's make sure it's an empty string!
-            $data['image'] = ''; 
+        // Remove image
+        elseif ($request->input('cover_image') === 'REMOVE') {
+
+            if ($section->image) {
+                Storage::disk('public')->delete($section->image);
+            }
+
+            $data['image'] = '';
         }
 
         $oldTitle = $section->title;
+
         $section->update($data);
 
         if ($request->user()) {
@@ -103,7 +136,11 @@ class AboutSectionController extends Controller
                 'action' => 'updated',
                 'subject_type' => 'about_section',
                 'subject_id' => $section->id,
-                'subject_title' => $section->title !== '' ? $section->title : ($oldTitle !== '' ? $oldTitle : 'Section ' . $section->sort_order),
+                'subject_title' => $section->title !== ''
+                    ? $section->title
+                    : ($oldTitle !== ''
+                        ? $oldTitle
+                        : 'Section ' . $section->sort_order),
             ]);
         }
 
@@ -113,7 +150,13 @@ class AboutSectionController extends Controller
     public function destroy(Request $request, $id)
     {
         $section = AboutSection::findOrFail($id);
+
         $title = $section->title;
+
+        if ($section->image) {
+            Storage::disk('public')->delete($section->image);
+        }
+
         $section->delete();
 
         if ($request->user()) {
@@ -122,10 +165,14 @@ class AboutSectionController extends Controller
                 'action' => 'deleted',
                 'subject_type' => 'about_section',
                 'subject_id' => (int) $id,
-                'subject_title' => $title !== '' ? $title : 'Section ' . $section->sort_order,
+                'subject_title' => $title !== ''
+                    ? $title
+                    : 'Section ' . $section->sort_order,
             ]);
         }
 
-        return response()->json(['message' => 'Deleted']);
+        return response()->json([
+            'message' => 'Deleted successfully',
+        ]);
     }
 }
