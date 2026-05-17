@@ -72,7 +72,10 @@ export default function Services() {
 
     useEffect(() => {
         fetch(`${API_BASE}/api/services`)
-            .then((res) => res.json())
+            .then((res) => {
+                if (!res.ok) throw new Error('Failed to fetch services');
+                return res.json();
+            })
             .then((data) => {
                 if (Array.isArray(data)) {
                     setHero(getLastBySortOrder(data, 0));
@@ -92,7 +95,10 @@ export default function Services() {
                     );
                 }
             })
-            .catch(() => setServices([]))
+            .catch((err) => {
+                console.error('Error fetching services:', err);
+                setServices([]);
+            })
             .finally(() => setLoading(false));
     }, []);
 

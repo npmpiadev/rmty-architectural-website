@@ -9,6 +9,28 @@ const API_BASE = import.meta.env.VITE_API_URL ?? "";
 const DRAFT_KEY = "appointment_draft";
 const RECAPTCHA_SITE_KEY = import.meta.env.VITE_RECAPTCHA_SITE_KEY;
 
+// ─── Time slots: every 30 minutes from 9:00 AM to 5:00 PM ───────────────────
+// This matches the admin calendar exactly. Once a consultation is confirmed,
+// the backend marks that slot + the next 3 slots (2-hour window) as unavailable,
+// so users cannot book into an ongoing consultation's window.
+const TIME_SLOTS = (() => {
+    const slots = [];
+    for (let h = 9; h <= 17; h++) {
+        for (const m of [0, 30]) {
+            if (h === 17 && m > 0) break;
+            const hour24 = String(h).padStart(2, "0");
+            const min    = String(m).padStart(2, "0");
+            const hour12 = h % 12 || 12;
+            const ampm   = h < 12 ? "AM" : "PM";
+            slots.push({
+                value: `${hour24}:${min}`,
+                label: `${hour12}:${min === "0" ? "00" : min} ${ampm}`,
+            });
+        }
+    }
+    return slots;
+})();
+
 export default function Appointments() {
     const navigate = useNavigate();
     const captchaRef = useRef(null);
@@ -40,27 +62,34 @@ export default function Appointments() {
     const [submitting, setSubmitting] = useState(false);
     const [unavailableSlots, setUnavailableSlots] = useState([]);
 
+    // ─── Fetch unavailable slots (admin-blocked + booked + 2-hr buffers) ──────
+    // The backend's /api/booked-slots already expands each confirmed booking
+    // into 4 × 30-min slots, so we just combine both lists here as before.
     const fetchUnavailableSlots = async () => {
         try {
             const [blockedRes, bookedRes] = await Promise.all([
                 fetch(`${API_BASE}/api/blocked-slots`),
-                fetch(`${API_BASE}/api/booked-slots`),
+                fetch(`${API_BASE}/api/booked-slots`, {
+    headers: {
+        Accept: "application/json",
+    },
+})
             ]);
 
             const blocked = blockedRes.ok ? await blockedRes.json() : [];
-            const booked = bookedRes.ok ? await bookedRes.json() : [];
+            const booked  = bookedRes.ok  ? await bookedRes.json() : [];
 
             setUnavailableSlots([
                 ...(Array.isArray(blocked) ? blocked : []),
-                ...(Array.isArray(booked) ? booked : []),
+                ...(Array.isArray(booked)  ? booked  : []),
             ]);
         } catch {
-            // silent fail
+            // silent fail — calendar will simply show all slots as available
         }
     };
 
     useEffect(() => {
-        const user = JSON.parse(localStorage.getItem("user") ?? "null");
+        const user  = JSON.parse(localStorage.getItem("user") ?? "null");
         const token = localStorage.getItem("token");
 
         if (user) {
@@ -161,6 +190,7 @@ export default function Appointments() {
                     Authorization: `Bearer ${authToken}`,
                 },
                 body: JSON.stringify({
+<<<<<<< HEAD
                     first_name:          fn,
                     last_name:           ln,
                     email:               em,
@@ -171,6 +201,17 @@ export default function Appointments() {
                     message:             msg ?? "",
                     consultation_date:   `${date} ${time}:00`,
                     consultation_type:   ctype ?? "onsite",
+=======
+                    first_name:        fn,
+                    last_name:         ln,
+                    email:             em,
+                    phone:             ph,
+                    location:          loc,
+                    project_type:      pt,
+                    captcha_token:     ct ?? null,
+                    message:           msg ?? "",
+                    consultation_date: `${date} ${time}:00`,
+>>>>>>> 7f8110979769dfbf47ca9ff4cb0c8a55ae1e263c
                 }),
             });
 
@@ -233,10 +274,23 @@ export default function Appointments() {
             newErrors.phone = "Enter a valid PH number (e.g. 09XXXXXXXXX).";
         }
 
+<<<<<<< HEAD
         if (!location.trim())  newErrors.location  = "Location is required.";
         if (!projectType)      newErrors.projectType = "Project Type is required.";
         if (!appointmentDate)  newErrors.appointmentDate = "Date is required.";
         if (!appointmentTime)  newErrors.appointmentTime = "Time is required.";
+=======
+        if (!location.trim())  newErrors.location    = "Location is required.";
+        if (!projectType)      newErrors.projectType = "Project Type is required.";
+        if (!appointmentDate)  newErrors.appointmentDate = "Date is required.";
+        if (!appointmentTime)  newErrors.appointmentTime = "Time is required.";
+
+        // Double-check the chosen slot wasn't taken between page load and submit
+        if (appointmentDate && appointmentTime && isTimeSlotUnavailable(appointmentDate, appointmentTime)) {
+            newErrors.appointmentTime =
+                "This time slot is no longer available. Please choose another.";
+        }
+>>>>>>> 7f8110979769dfbf47ca9ff4cb0c8a55ae1e263c
 
         if (!RECAPTCHA_SITE_KEY) {
             newErrors.captcha = "Captcha site key is missing. Please check your .env file.";
@@ -267,7 +321,6 @@ export default function Appointments() {
                     consultationType,
                 }),
             );
-
             setShowAuthModal(true);
             return;
         }
@@ -292,6 +345,73 @@ export default function Appointments() {
             token,
         );
     };
+
+    // ─── Check if a specific time slot is unavailable ────────────────────────
+    // Works for both admin-blocked slots and booked/buffer slots returned by
+    // the backend — all share the same { blocked_date, blocked_time } shape.
+   const isDateFullyBooked = (date) => {
+
+    const slotsForDate = unavailableSlots.filter((slot) => {
+
+        const slotDate =
+            slot.blocked_date?.split("T")[0] ||
+            slot.blocked_date;
+
+        return slotDate === date;
+    });
+
+    return slotsForDate.length >= 16;
+};
+
+const isTimeSlotUnavailable = (date, time) => {
+
+    if (!date || !time) return false;
+
+    const dateSlots = unavailableSlots
+        .filter((slot) => {
+
+            const slotDate =
+                slot.blocked_date?.split("T")[0] ||
+                slot.blocked_date;
+
+            return slotDate === date;
+        });
+
+    // exact blocked slot
+    const exactMatch = dateSlots.some((slot) => {
+
+        return slot.blocked_time === time;
+    });
+
+    if (exactMatch) return true;
+
+    // latest booked slot for the day
+    const bookedOnly = dateSlots
+        .filter((s) => s.type === "booked")
+        .sort((a, b) =>
+            a.blocked_time.localeCompare(b.blocked_time)
+        );
+
+    if (bookedOnly.length === 0) {
+        return false;
+    }
+
+    const latestBooking =
+        bookedOnly[bookedOnly.length - 1];
+
+    const latest = new Date(
+        `${date}T${latestBooking.blocked_time}:00`
+    );
+
+    const nextAvailable =
+        new Date(latest.getTime() + (2 * 60 * 60 * 1000));
+
+    const requested =
+        new Date(`${date}T${time}:00`);
+
+    // anything before next available is blocked
+    return requested < nextAvailable;
+};
 
     if (checkingActive) {
         return (
@@ -344,7 +464,11 @@ export default function Appointments() {
                             onSubmit={handleAppointmentSubmit}
                             className="w-full"
                         >
+<<<<<<< HEAD
                             {/* ── Section 01: Client Details ── */}
+=======
+                            {/* ── 01 Client Details ── */}
+>>>>>>> 7f8110979769dfbf47ca9ff4cb0c8a55ae1e263c
                             <div className="mb-20">
                                 <div className="border-b-2 border-black pb-4 mb-10 flex justify-between items-end">
                                     <h2 className="text-xl md:text-2xl font-bold tracking-tight uppercase">
@@ -386,7 +510,11 @@ export default function Appointments() {
                                 </div>
                             </div>
 
+<<<<<<< HEAD
                             {/* ── Section 02: Project Specs ── */}
+=======
+                            {/* ── 02 Project Specs ── */}
+>>>>>>> 7f8110979769dfbf47ca9ff4cb0c8a55ae1e263c
                             <div className="mb-20">
                                 <div className="border-b-2 border-black pb-4 mb-10 flex justify-between items-end">
                                     <h2 className="text-xl md:text-2xl font-bold tracking-tight uppercase">
@@ -425,6 +553,7 @@ export default function Appointments() {
                                 />
                             </div>
 
+<<<<<<< HEAD
                             {/* ── Section 03: Consultation Format ── */}
                             <div className="mb-20">
                                 <div className="border-b-2 border-black pb-4 mb-10 flex justify-between items-end">
@@ -443,6 +572,9 @@ export default function Appointments() {
                             </div>
 
                             {/* ── Section 04: Scheduling ── */}
+=======
+                            {/* ── 03 Scheduling ── */}
+>>>>>>> 7f8110979769dfbf47ca9ff4cb0c8a55ae1e263c
                             <div className="mb-10">
                                 <div className="border-b-2 border-black pb-4 mb-10 flex justify-between items-end">
                                     <h2 className="text-xl md:text-2xl font-bold tracking-tight uppercase">
@@ -455,7 +587,7 @@ export default function Appointments() {
 
                                 <div className="w-full">
                                     <label
-                                        className={`block text-[11px] font-bold tracking-[0.15em] uppercase mb-6 transition-colors ${
+                                        className={`block text-[11px] font-bold tracking-[0.15em] uppercase mb-2 transition-colors ${
                                             errors.appointmentDate ||
                                             errors.appointmentTime
                                                 ? "text-red-500"
@@ -465,12 +597,19 @@ export default function Appointments() {
                                         Select Date & Time *
                                     </label>
 
-                                    <CalendarScheduler
+                                    {/* Hint so users understand the 2-hour session block */}
+                                    <p className="text-[10px] tracking-wide text-neutral-400 mb-6 uppercase font-medium">
+                                        Each session occupies a 2-hour window. Adjacent slots will be unavailable after booking.
+                                    </p>
+
+                                   <CalendarScheduler
                                         selectedDate={appointmentDate}
                                         onDateChange={setAppointmentDate}
                                         selectedTime={appointmentTime}
                                         onTimeChange={setAppointmentTime}
                                         unavailableSlots={unavailableSlots}
+                                        timeSlots={TIME_SLOTS}
+                                        isDateFullyBooked={isDateFullyBooked}
                                     />
 
                                     {(errors.appointmentDate ||
@@ -567,6 +706,7 @@ export default function Appointments() {
     );
 }
 
+<<<<<<< HEAD
 /* ──────────────────────────────────────────────────────────────────────────── */
 /*  Consultation Type Toggle                                                     */
 /* ──────────────────────────────────────────────────────────────────────────── */
@@ -670,6 +810,10 @@ function ConsultationTypeToggle({ value, onChange }) {
 /* ──────────────────────────────────────────────────────────────────────────── */
 /*  OngoingConsultationBlock                                                     */
 /* ──────────────────────────────────────────────────────────────────────────── */
+=======
+// ─── Ongoing Consultation Block ───────────────────────────────────────────────
+
+>>>>>>> 7f8110979769dfbf47ca9ff4cb0c8a55ae1e263c
 function OngoingConsultationBlock({ consultation, onDashboard }) {
     const statusColors = {
         pending: {
@@ -722,11 +866,23 @@ function OngoingConsultationBlock({ consultation, onDashboard }) {
             ? [{ label: "Reference No.", value: consultation.reference_id, mono: true }]
             : []),
         { label: "Project Type", value: consultation?.project_type ?? "—" },
+<<<<<<< HEAD
         { label: "Location",     value: consultation?.location ?? "—" },
         { label: "Format",       value: isOnline ? "Online / Video Call" : "Onsite Visit" },
         { label: "Date",         value: formattedDate },
         { label: "Time",         value: formattedTime || "—" },
         { label: "Status",       value: s.label, highlight: true, color: s.text },
+=======
+        { label: "Location",     value: consultation?.location     ?? "—" },
+        { label: "Date",         value: formattedDate },
+        { label: "Time",         value: formattedTime || "—" },
+        {
+            label: "Status",
+            value: s.label,
+            highlight: true,
+            color: s.text,
+        },
+>>>>>>> 7f8110979769dfbf47ca9ff4cb0c8a55ae1e263c
     ];
 
     return (
@@ -757,7 +913,13 @@ function OngoingConsultationBlock({ consultation, onDashboard }) {
                                 <h2 className="text-xl md:text-2xl font-bold tracking-tight uppercase">
                                     Active Consultation
                                 </h2>
+<<<<<<< HEAD
                                 <span className={`text-[10px] font-bold tracking-widest uppercase px-3 py-1 ${s.bg} ${s.text} border ${s.border}`}>
+=======
+                                <span
+                                    className={`text-[10px] font-bold tracking-widest uppercase px-3 py-1 ${s.bg} ${s.text} border ${s.border}`}
+                                >
+>>>>>>> 7f8110979769dfbf47ca9ff4cb0c8a55ae1e263c
                                     {s.label}
                                 </span>
                             </div>
@@ -775,14 +937,28 @@ function OngoingConsultationBlock({ consultation, onDashboard }) {
                                         Current Booking
                                     </p>
                                 </div>
-
                                 <div className="divide-y divide-neutral-100">
                                     {rows.map(({ label, value, highlight, color, mono }) => (
+<<<<<<< HEAD
                                         <div key={label} className="flex justify-between items-center px-6 py-4">
                                             <span className="text-[11px] font-bold tracking-[0.1em] uppercase text-neutral-400">
                                                 {label}
                                             </span>
                                             <span className={`text-[13px] font-semibold ${highlight ? color : "text-neutral-800"} ${mono ? "font-mono tracking-wider" : ""}`}>
+=======
+                                        <div
+                                            key={label}
+                                            className="flex justify-between items-center px-6 py-4"
+                                        >
+                                            <span className="text-[11px] font-bold tracking-[0.1em] uppercase text-neutral-400">
+                                                {label}
+                                            </span>
+                                            <span
+                                                className={`text-[13px] font-semibold ${
+                                                    highlight ? color : "text-neutral-800"
+                                                } ${mono ? "font-mono tracking-wider" : ""}`}
+                                            >
+>>>>>>> 7f8110979769dfbf47ca9ff4cb0c8a55ae1e263c
                                                 {value}
                                             </span>
                                         </div>
@@ -838,9 +1014,14 @@ function OngoingConsultationBlock({ consultation, onDashboard }) {
     );
 }
 
+<<<<<<< HEAD
 /* ──────────────────────────────────────────────────────────────────────────── */
 /*  AuthRequiredModal                                                            */
 /* ──────────────────────────────────────────────────────────────────────────── */
+=======
+// ─── Auth Required Modal ──────────────────────────────────────────────────────
+
+>>>>>>> 7f8110979769dfbf47ca9ff4cb0c8a55ae1e263c
 function AuthRequiredModal({ isOpen, onClose, onAction }) {
     return (
         <AnimatePresence>
@@ -891,9 +1072,14 @@ function AuthRequiredModal({ isOpen, onClose, onAction }) {
     );
 }
 
+<<<<<<< HEAD
 /* ──────────────────────────────────────────────────────────────────────────── */
 /*  UnderlineInput                                                               */
 /* ──────────────────────────────────────────────────────────────────────────── */
+=======
+// ─── Shared Form Components ───────────────────────────────────────────────────
+
+>>>>>>> 7f8110979769dfbf47ca9ff4cb0c8a55ae1e263c
 function UnderlineInput({
     label,
     type = "text",

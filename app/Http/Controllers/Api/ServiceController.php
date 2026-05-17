@@ -24,8 +24,8 @@ class ServiceController extends Controller
     {
         $text = $this->normalizeLineBreaks($value);
 
-        // Only convert dynamic service items into clean bullet lines.
         if ($sortOrder >= 3) {
+
             $lines = explode("\n", $text);
 
             $lines = array_map(function ($line) {
@@ -41,8 +41,6 @@ class ServiceController extends Controller
             return implode("\n", $lines);
         }
 
-        // Keep hero, intro, and CTA content exactly as admin entered,
-        // only normalize line breaks and trim outer spaces.
         return trim($text);
     }
 
@@ -66,41 +64,57 @@ class ServiceController extends Controller
         $sortOrder = (int) ($request->input('sort_order') ?? 0);
 
         $maxSort = Service::max('sort_order');
-        $defaultSort = is_null($maxSort) ? 0 : $maxSort + 1;
-        $resolvedSortOrder = (int) ($request->input('sort_order') ?? $defaultSort);
+
+        $resolvedSortOrder = $request->filled('sort_order')
+            ? (int) $request->input('sort_order')
+            : (is_null($maxSort) ? 0 : $maxSort + 1);
 
         $data = [
             'title' => $this->cleanText($request->input('title')),
-            'content' => $this->normalizeServiceContent($request->input('content'), $resolvedSortOrder),
+            'content' => $this->normalizeServiceContent(
+                $request->input('content'),
+                $resolvedSortOrder
+            ),
             'is_published' => $request->has('is_published')
                 ? $request->boolean('is_published')
                 : true,
             'sort_order' => $resolvedSortOrder,
+            'image' => '',
         ];
 
         if ($request->hasFile('cover_image')) {
+
             $request->validate([
                 'cover_image' => 'image|mimes:jpg,jpeg,png,webp'
             ]);
 
-            $data['image'] = $request->file('cover_image')->store('services', 'public');
+            $data['image'] = $request
+                ->file('cover_image')
+                ->store('services', 'public');
         }
 
-        // Prevent duplicate fixed sections: Hero, Intro, CTA
+        // Fixed sections
         if (in_array($sortOrder, [0, 1, 2], true)) {
+
             $existing = Service::where('sort_order', $sortOrder)
                 ->orderBy('id')
                 ->first();
 
             if ($existing) {
-                if (array_key_exists('image', $data) && $existing->image) {
+
+                if (
+                    !empty($data['image']) &&
+                    !empty($existing->image)
+                ) {
                     Storage::disk('public')->delete($existing->image);
                 }
 
                 $oldTitle = $existing->title;
+
                 $existing->update($data);
 
                 if ($request->user()) {
+
                     AdminActivity::create([
                         'user_id' => $request->user()->id,
                         'action' => 'updated',
@@ -108,7 +122,11 @@ class ServiceController extends Controller
                         'subject_id' => $existing->id,
                         'subject_title' => $existing->title !== ''
                             ? $existing->title
-                            : ($oldTitle !== '' ? $oldTitle : 'Service ' . $existing->sort_order),
+                            : (
+                                $oldTitle !== ''
+                                    ? $oldTitle
+                                    : 'Service ' . $existing->sort_order
+                            ),
                     ]);
                 }
 
@@ -119,6 +137,7 @@ class ServiceController extends Controller
         $service = Service::create($data);
 
         if ($request->user()) {
+
             AdminActivity::create([
                 'user_id' => $request->user()->id,
                 'action' => 'created',
@@ -136,38 +155,56 @@ class ServiceController extends Controller
     public function update(Request $request, $id)
     {
         $service = Service::findOrFail($id);
-        $resolvedSortOrder = (int) ($request->input('sort_order') ?? $service->sort_order);
+
+        $resolvedSortOrder = $request->filled('sort_order')
+            ? (int) $request->input('sort_order')
+            : $service->sort_order;
 
         $data = [
             'title' => $this->cleanText($request->input('title')),
-            'content' => $this->normalizeServiceContent($request->input('content'), $resolvedSortOrder),
+            'content' => $this->normalizeServiceContent(
+                $request->input('content'),
+                $resolvedSortOrder
+            ),
             'is_published' => $request->has('is_published')
                 ? $request->boolean('is_published')
                 : $service->is_published,
             'sort_order' => $resolvedSortOrder,
         ];
 
+        // Upload new image
         if ($request->hasFile('cover_image')) {
+
             $request->validate([
                 'cover_image' => 'image|mimes:jpg,jpeg,png,webp'
             ]);
 
-            if ($service->image) {
+            if (!empty($service->image)) {
                 Storage::disk('public')->delete($service->image);
             }
 
-            $data['image'] = $request->file('cover_image')->store('services', 'public');
-        } elseif ($request->input('cover_image') === 'REMOVE') {
-            if ($service->image) {
+            $data['image'] = $request
+                ->file('cover_image')
+                ->store('services', 'public');
+        }
+
+        // Remove image
+        elseif ($request->input('cover_image') === 'REMOVE') {
+
+            if (!empty($service->image)) {
                 Storage::disk('public')->delete($service->image);
             }
-            $data['image'] = null;
+
+            // FIXED HERE
+            $data['image'] = '';
         }
 
         $oldTitle = $service->title;
+
         $service->update($data);
 
         if ($request->user()) {
+
             AdminActivity::create([
                 'user_id' => $request->user()->id,
                 'action' => 'updated',
@@ -175,7 +212,11 @@ class ServiceController extends Controller
                 'subject_id' => $service->id,
                 'subject_title' => $service->title !== ''
                     ? $service->title
-                    : ($oldTitle !== '' ? $oldTitle : 'Service ' . $service->sort_order),
+                    : (
+                        $oldTitle !== ''
+                            ? $oldTitle
+                            : 'Service ' . $service->sort_order
+                    ),
             ]);
         }
 
@@ -185,24 +226,30 @@ class ServiceController extends Controller
     public function destroy(Request $request, $id)
     {
         $service = Service::findOrFail($id);
+
         $title = $service->title;
 
-        if ($service->image) {
+        if (!empty($service->image)) {
             Storage::disk('public')->delete($service->image);
         }
 
         $service->delete();
 
         if ($request->user()) {
+
             AdminActivity::create([
                 'user_id' => $request->user()->id,
                 'action' => 'deleted',
                 'subject_type' => 'service',
                 'subject_id' => (int) $id,
-                'subject_title' => $title !== '' ? $title : 'Service ' . $id,
+                'subject_title' => $title !== ''
+                    ? $title
+                    : 'Service ' . $id,
             ]);
         }
 
-        return response()->json(['message' => 'Deleted']);
+        return response()->json([
+            'message' => 'Deleted'
+        ]);
     }
 }

@@ -13,7 +13,7 @@ export default function Footer() {
           */}
                     <div className="-ml-5">
                         <img
-                            src="/images/rmty-logo-transparent.png"
+                            src="/images/rmty-LOGO.png"
                             alt="RMTY Designs Architects"
                             className="h-30 w-auto object-contain"
                         />

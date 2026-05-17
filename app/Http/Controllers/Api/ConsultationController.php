@@ -27,6 +27,7 @@ class ConsultationController extends Controller
         return response()->json($query->get());
     }
 
+<<<<<<< HEAD
     // POST /api/consultations  (client — auto-accepts + sends confirmation email)
     public function store(Request $request): JsonResponse
     {
@@ -86,13 +87,108 @@ class ConsultationController extends Controller
         } catch (\Throwable $e) {
             Log::error('BookingConfirmationMail failed: ' . $e->getMessage());
         }
+=======
+  public function store(Request $request): JsonResponse
+{
+    $validated = $request->validate([
+        'first_name'        => 'required|string|max:255',
+        'last_name'         => 'required|string|max:255',
+        'email'             => 'required|email|max:255',
+        'phone'             => 'nullable|string|max:30',
+        'project_type'      => 'nullable|string|max:255',
+        'location'          => 'nullable|string|max:255',
+        'consultation_date' => 'required|date',
+        'message'           => 'nullable|string',
+    ]);
 
+    // USER CAN ONLY HAVE ONE ACTIVE CONSULTATION
+    $ongoing = Consultation::where('email', $validated['email'])
+        ->whereIn('status', ['pending', 'accepted', 'rescheduled'])
+        ->where('is_published', 1)
+        ->first();
+>>>>>>> 7f8110979769dfbf47ca9ff4cb0c8a55ae1e263c
+
+    if ($ongoing) {
         return response()->json([
-            'message'      => 'Consultation submitted successfully.',
-            'data'         => $consultation,
-            'reference_id' => $consultation->reference_id,
-        ], 201);
+            'message'      => 'You already have an ongoing consultation.',
+            'has_active'   => true,
+            'consultation' => $ongoing,
+        ], 409);
     }
+
+    $requestedDate = \Carbon\Carbon::parse($validated['consultation_date']);
+
+    // 2-HOUR BUFFER CHECK
+    $existingConsultations = Consultation::whereIn('status', [
+            'pending',
+            'accepted',
+            'rescheduled',
+        ])
+        ->where('is_published', 1)
+        ->whereNotNull('consultation_date')
+        ->get();
+
+    foreach ($existingConsultations as $existing) {
+
+        $existingDate = \Carbon\Carbon::parse(
+            $existing->consultation_date
+        );
+
+        $endWindow = $existingDate->copy()->addHours(2);
+
+        // if requested appointment falls within 2-hour window
+        if (
+            $requestedDate->between(
+                $existingDate,
+                $endWindow->subMinute()
+            )
+        ) {
+            return response()->json([
+                'message' =>
+                    'This time slot is unavailable because another consultation is already scheduled.',
+            ], 422);
+        }
+    }
+
+    // CHECK ADMIN BLOCKED SLOTS
+    $date = $requestedDate->format('Y-m-d');
+    $time = $requestedDate->format('H:i');
+
+    $blocked = \App\Models\BlockedSlot::where(
+        'blocked_date',
+        $date
+    )
+        ->where('blocked_time', $time)
+        ->exists();
+
+    if ($blocked) {
+        return response()->json([
+            'message' => 'This slot has been blocked by the admin.',
+        ], 422);
+    }
+
+    $consultation = Consultation::create([
+        ...$validated,
+        'status'            => 'accepted',
+        'is_published'      => 1,
+        'reschedule_reason' => null,
+    ]);
+
+    try {
+        Mail::to($consultation->email)
+            ->send(new BookingConfirmationMail($consultation));
+    } catch (\Throwable $e) {
+        Log::error(
+            'BookingConfirmationMail failed: ' . $e->getMessage()
+        );
+    }
+
+    return response()->json([
+        'message'      => 'Consultation submitted successfully.',
+        'data'         => $consultation,
+        'reference_id' => $consultation->reference_id,
+    ], 201);
+}
 
     // GET /api/consultations/{id}
     public function show($id): JsonResponse

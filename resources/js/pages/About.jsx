@@ -1,9 +1,11 @@
 import React, { useState, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 
+const API_BASE = import.meta.env.VITE_API_URL ?? "";
+
 function imageUrl(path) {
     if (!path) return null;
-    return path.startsWith("http") ? path : `/storage/${path}`;
+    return path.startsWith("http") ? path : `${API_BASE}/storage/${path}`;
 }
 
 function ImagePlaceholder({ className = "", label = "Image" }) {
@@ -42,10 +44,16 @@ export default function About() {
     const [loading, setLoading] = useState(true);
 
     useEffect(() => {
-        fetch("/api/about")
-            .then((res) => res.json())
+        fetch(`${API_BASE}/api/about`)
+            .then((res) => {
+                if (!res.ok) throw new Error('Failed to fetch about sections');
+                return res.json();
+            })
             .then((data) => setSections(Array.isArray(data) ? data : []))
-            .catch(() => setSections([]))
+            .catch((err) => {
+                console.error('Error fetching about sections:', err);
+                setSections([]);
+            })
             .finally(() => setLoading(false));
     }, []);
 
@@ -69,8 +77,6 @@ export default function About() {
         "Our team is committed to delivering thoughtful design solutions through research-driven planning, technical precision, and transparent communication throughout the project lifecycle.";
     const defaultArtistParagraph =
         "RMTY was built on the belief that architecture should be both meaningful and measurable—shaping daily life while meeting real project constraints with clarity and care.";
-
-    // NOTICE: The full-page "if (loading)" block has been removed so the layout loads instantly!
 
     return (
         <main className="min-h-screen bg-white text-neutral-900">

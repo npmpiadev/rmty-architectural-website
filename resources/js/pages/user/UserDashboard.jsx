@@ -7,6 +7,28 @@ const API_BASE   = import.meta.env.VITE_API_URL ?? "";
 const smoothEase = [0.22, 1, 0.36, 1];
 const MIN_RESCHEDULE_DATE = new Date().toISOString().slice(0, 10);
 
+// ── 30-minute interval time slots 9AM–5PM ─────────────────────────────────
+// Matches Appointments.jsx and AdminCalendarBlocking.jsx exactly.
+// The backend expands each confirmed booking into 4 × 30-min buffer slots,
+// so unavailable slots passed to this grid will reflect the 2-hour window.
+const TIME_SLOTS = (() => {
+    const slots = [];
+    for (let h = 9; h <= 17; h++) {
+        for (const m of [0, 30]) {
+            if (h === 17 && m > 0) break;
+            const hour24 = String(h).padStart(2, "0");
+            const min    = String(m).padStart(2, "0");
+            const hour12 = h % 12 || 12;
+            const ampm   = h < 12 ? "AM" : "PM";
+            slots.push({
+                value: `${hour24}:${min}`,
+                label: `${hour12}:${min === "0" ? "00" : min} ${ampm}`,
+            });
+        }
+    }
+    return slots;
+})();
+
 // ── Helpers ──────────────────────────────────────────────────────────────────
 function fmt(dateTime, opts) {
     if (!dateTime) return "—";
@@ -29,6 +51,7 @@ function statusClasses(s) {
     if (v === "cancelled")    return "border-red-200 bg-red-50 text-red-700";
     if (v === "completed")    return "border-neutral-300 bg-neutral-100 text-neutral-700";
     return "border-amber-200 bg-amber-50 text-amber-700";
+<<<<<<< HEAD
 }
 
 function buildTimeOptions() {
@@ -39,6 +62,8 @@ function buildTimeOptions() {
         const label = `${h % 12 || 12}:${m === 0 ? "00" : m} ${h < 12 ? "AM" : "PM"}`;
         return { value, label };
     });
+=======
+>>>>>>> 7f8110979769dfbf47ca9ff4cb0c8a55ae1e263c
 }
 
 function splitDT(dt) {
@@ -102,6 +127,24 @@ function normalizeConsult(c) {
     };
 }
 
+// ── Fetch unavailable slots (public endpoints — no credentials) ───────────────
+async function fetchUnavailableSlots() {
+    try {
+        const [blockedRes, bookedRes] = await Promise.all([
+            fetch(`${API_BASE}/api/blocked-slots`, { headers: { Accept: "application/json" } }),
+            fetch(`${API_BASE}/api/booked-slots`,  { headers: { Accept: "application/json" } }),
+        ]);
+        const blocked = blockedRes.ok ? await blockedRes.json() : [];
+        const booked  = bookedRes.ok  ? await bookedRes.json()  : [];
+        return [
+            ...(Array.isArray(blocked) ? blocked : []),
+            ...(Array.isArray(booked)  ? booked  : []),
+        ];
+    } catch {
+        return [];
+    }
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 export default function UserDashboard() {
     const navigate = useNavigate();
@@ -115,6 +158,10 @@ export default function UserDashboard() {
     const [showProfileDropdown, setShowProfileDropdown] = useState(false);
     const [showProfileModal,    setShowProfileModal]    = useState(false);
     const [showRescheduleModal, setShowRescheduleModal] = useState(false);
+<<<<<<< HEAD
+=======
+    const [unavailableSlots,    setUnavailableSlots]    = useState([]);
+>>>>>>> 7f8110979769dfbf47ca9ff4cb0c8a55ae1e263c
 
     const [profileForm, setProfileForm] = useState({
         firstName: "", lastName: "", email: "", phone: "",
@@ -125,6 +172,7 @@ export default function UserDashboard() {
     });
 
     // ── Load appointments ─────────────────────────────────────────────────
+<<<<<<< HEAD
     useEffect(() => {
         if (!token) return;
         (async () => {
@@ -143,6 +191,36 @@ export default function UserDashboard() {
                 setLoading(false);
             }
         })();
+=======
+    const loadAppointments = async () => {
+        if (!token) return;
+        try {
+            const data = await apiFetch(`/api/consultations/my-all`, token);
+            const list = Array.isArray(data.consultations)
+                ? data.consultations.map(normalizeConsult)
+                : Array.isArray(data)
+                ? data.map(normalizeConsult)
+                : [];
+            setAppointments(list);
+            setSelectedId((prev) => prev ?? list[0]?.id ?? null);
+        } catch (err) {
+            console.warn("Could not load appointments:", err.message);
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    useEffect(() => {
+        loadAppointments();
+        fetchUnavailableSlots().then(setUnavailableSlots);
+
+        const interval = setInterval(() => {
+            loadAppointments();
+            fetchUnavailableSlots().then(setUnavailableSlots);
+        }, 30_000);
+
+        return () => clearInterval(interval);
+>>>>>>> 7f8110979769dfbf47ca9ff4cb0c8a55ae1e263c
     }, [token]);
 
     // ── Prefill profile form ──────────────────────────────────────────────
@@ -187,13 +265,13 @@ export default function UserDashboard() {
             {
                 id: 1,
                 title: "Appointment submitted",
-                desc: "Your consultation request has been recorded.",
-                time: fmtDateTime(selected.createdAt),
+                desc:  "Your consultation request has been recorded.",
+                time:  fmtDateTime(selected.createdAt),
             },
             {
                 id: 2,
                 title: `Status: ${fmtStatus(selected.status)}`,
-                desc: selected.status === "rescheduled"
+                desc:  selected.status === "rescheduled"
                     ? "Your appointment schedule was updated."
                     : selected.status === "cancelled"
                     ? "Your appointment has been cancelled."
@@ -205,12 +283,41 @@ export default function UserDashboard() {
             items.push({
                 id: 3,
                 title: "Reschedule reason",
-                desc: selected.rescheduleReason,
-                time: fmtDateTime(selected.updatedAt),
+                desc:  selected.rescheduleReason,
+                time:  fmtDateTime(selected.updatedAt),
             });
         }
         return items;
     }, [selected]);
+
+    // ── Check if a slot is unavailable ───────────────────────────────────
+    // Excludes the current appointment's own primary slot so the user can
+    // re-select their existing time without it appearing blocked.
+   const isSlotUnavailable = (date, time) => {
+
+    const currentSplit = selected
+        ? splitDT(selected.consultationDate)
+        : null;
+
+    return unavailableSlots.some((slot) => {
+
+        const slotDate =
+            (slot.blocked_date || "").split("T")[0];
+
+        const slotTime = slot.blocked_time;
+
+        // allow current appointment slot during reschedule
+        if (
+            currentSplit &&
+            currentSplit.date === slotDate &&
+            currentSplit.time === slotTime
+        ) {
+            return false;
+        }
+
+        return slotDate === date && slotTime === time;
+    });
+};
 
     // ── Handlers ──────────────────────────────────────────────────────────
     function handleLogout() {
@@ -268,50 +375,116 @@ export default function UserDashboard() {
     function openRescheduleModal() {
         if (!selected) return;
         const split = splitDT(selected.consultationDate);
+        // Snap to nearest valid 30-min slot (or default to 09:00)
+        const validTime = TIME_SLOTS.find((s) => s.value === split.time)?.value ?? "09:00";
         setRescheduleForm({
             consultationDate: split.date || MIN_RESCHEDULE_DATE,
-            consultationTime: split.time || "09:00",
+            consultationTime: validTime,
             rescheduleReason: selected.rescheduleReason || "",
         });
+        fetchUnavailableSlots().then(setUnavailableSlots);
         setShowRescheduleModal(true);
     }
 
     async function handleConfirmReschedule(e) {
         e.preventDefault();
+<<<<<<< HEAD
         if (!rescheduleForm.consultationDate || !rescheduleForm.consultationTime || !rescheduleForm.rescheduleReason.trim()) {
             await Swal.fire({ icon: "warning", title: "Incomplete details", text: "Please fill in all reschedule fields.", confirmButtonColor: "#000000" });
             return;
         }
+=======
+        const { consultationDate, consultationTime, rescheduleReason } = rescheduleForm;
+
+        if (!consultationDate || !consultationTime || !rescheduleReason.trim()) {
+            await Swal.fire({
+                icon: "warning",
+                title: "Incomplete details",
+                text: "Please fill in all reschedule fields.",
+                confirmButtonColor: "#000000",
+            });
+            return;
+        }
+
+        if (isSlotUnavailable(consultationDate, consultationTime)) {
+            await Swal.fire({
+                icon: "error",
+                title: "Slot unavailable",
+                text: "This time slot is already blocked or booked. Please choose another.",
+                confirmButtonColor: "#000000",
+            });
+            return;
+        }
+
+>>>>>>> 7f8110979769dfbf47ca9ff4cb0c8a55ae1e263c
         const result = await Swal.fire({
             icon: "question", title: "Reschedule appointment?",
             showCancelButton: true, confirmButtonText: "Yes, reschedule",
             cancelButtonText: "Cancel", confirmButtonColor: "#000000",
         });
         if (!result.isConfirmed || !selected) return;
+<<<<<<< HEAD
         const newDateTime = `${rescheduleForm.consultationDate} ${rescheduleForm.consultationTime}:00`;
+=======
+
+        const newDateTime = `${consultationDate} ${consultationTime}:00`;
+
+>>>>>>> 7f8110979769dfbf47ca9ff4cb0c8a55ae1e263c
         try {
             await apiFetch(`/api/consultations/${selected.id}`, token, {
                 method: "PUT",
                 body: JSON.stringify({
                     status:            "rescheduled",
                     consultation_date: newDateTime,
+<<<<<<< HEAD
                     reschedule_reason: rescheduleForm.rescheduleReason,
+=======
+                    reschedule_reason: rescheduleReason,
+>>>>>>> 7f8110979769dfbf47ca9ff4cb0c8a55ae1e263c
                 }),
             });
             setAppointments((prev) =>
                 prev.map((a) =>
                     a.id === selected.id
+<<<<<<< HEAD
                         ? { ...a, status: "rescheduled", consultationDate: newDateTime, rescheduleReason: rescheduleForm.rescheduleReason, updatedAt: new Date().toISOString() }
                         : a,
                 ),
+=======
+                        ? {
+                            ...a,
+                            status:           "rescheduled",
+                            consultationDate: newDateTime,
+                            rescheduleReason: rescheduleReason,
+                            updatedAt:        new Date().toISOString(),
+                          }
+                        : a
+                )
+>>>>>>> 7f8110979769dfbf47ca9ff4cb0c8a55ae1e263c
             );
             setShowRescheduleModal(false);
+<<<<<<< HEAD
             await Swal.fire({ icon: "success", title: "Appointment rescheduled", confirmButtonColor: "#000000" });
+=======
+
+            await Swal.fire({
+                icon: "success",
+                title: "Appointment rescheduled",
+                text: "The new slot has been reflected on the admin calendar.",
+                confirmButtonColor: "#000000",
+            });
+
+            await loadAppointments();
+>>>>>>> 7f8110979769dfbf47ca9ff4cb0c8a55ae1e263c
         } catch (err) {
             Swal.fire({ icon: "error", title: "Failed", text: err.message, confirmButtonColor: "#000000" });
         }
     }
 
+<<<<<<< HEAD
+=======
+    // ── Loading / auth ────────────────────────────────────────────────────
+>>>>>>> 7f8110979769dfbf47ca9ff4cb0c8a55ae1e263c
     if (!token || !user) return null;
 
     if (loading) {
@@ -364,6 +537,10 @@ export default function UserDashboard() {
                                     <BellIcon className="w-5 h-5" />
                                     {notifications.length > 0 && <span className="absolute top-2 right-2 w-2.5 h-2.5 rounded-full bg-red-500" />}
                                 </button>
+<<<<<<< HEAD
+=======
+
+>>>>>>> 7f8110979769dfbf47ca9ff4cb0c8a55ae1e263c
                                 <div className="relative" ref={profileDropdownRef}>
                                     <button type="button" onClick={() => setShowProfileDropdown((p) => !p)} className="flex items-center gap-3 rounded-full border border-neutral-200 bg-white px-3 py-2 hover:border-neutral-300 transition-colors cursor-pointer">
                                         <div className="w-9 h-9 rounded-full bg-neutral-900 text-white flex items-center justify-center text-sm font-black uppercase">{initials}</div>
@@ -396,9 +573,15 @@ export default function UserDashboard() {
 
                             {/* Stat cards */}
                             <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+<<<<<<< HEAD
                                 <StatCard label="Current Status"    value={selected ? fmtStatus(selected.status) : "—"}                        icon={<ActivityIcon />} />
                                 <StatCard label="Consultation Date" value={selected ? fmtDate(selected.consultationDate) : "—"}                 icon={<CalendarIcon />} />
                                 <StatCard label="Consultation Time" value={selected ? fmtTime(selected.consultationDate) : "—"}                 icon={<ClockIcon />} />
+=======
+                                <StatCard label="Current Status"    value={selected ? fmtStatus(selected.status) : "—"} icon={<ActivityIcon />} />
+                                <StatCard label="Consultation Date" value={selected ? fmtDate(selected.consultationDate) : "—"} icon={<CalendarIcon />} />
+                                <StatCard label="Consultation Time" value={selected ? fmtTime(selected.consultationDate) : "—"} icon={<ClockIcon />} />
+>>>>>>> 7f8110979769dfbf47ca9ff4cb0c8a55ae1e263c
                             </div>
 
                             <div className="grid grid-cols-1 xl:grid-cols-3 gap-6 items-start">
@@ -496,7 +679,6 @@ export default function UserDashboard() {
                                                         <FieldRow label="Email"      value={selected.email} />
                                                         <FieldRow label="Phone"      value={selected.phone || "—"} />
                                                     </DetailCard>
-
                                                     <DetailCard title="Project Information">
                                                         <FieldRow label="Location"     value={selected.location || "—"} />
                                                         <FieldRow label="Project Type" value={selected.projectType || "—"} />
@@ -525,7 +707,10 @@ export default function UserDashboard() {
                                                     )}
                                                 </DetailCard>
 
+<<<<<<< HEAD
                                                 {/* Actions */}
+=======
+>>>>>>> 7f8110979769dfbf47ca9ff4cb0c8a55ae1e263c
                                                 {["pending", "accepted", "rescheduled"].includes(selected.status) && (
                                                     <div className="flex flex-col sm:flex-row gap-3">
                                                         <button type="button" onClick={openRescheduleModal} className="rounded-full bg-black px-6 py-3 text-[10px] font-bold tracking-[0.2em] uppercase text-white hover:opacity-80 transition-all cursor-pointer">
@@ -540,7 +725,7 @@ export default function UserDashboard() {
                                         )}
                                     </section>
 
-                                    {/* Appointment list */}
+                                    {/* All appointments list */}
                                     {appointments.length > 1 && (
                                         <section className="rounded-2xl border border-neutral-200 bg-white overflow-hidden">
                                             <div className="px-6 py-5 border-b border-neutral-100 bg-neutral-50/50">
@@ -593,7 +778,7 @@ export default function UserDashboard() {
                 </div>
             </div>
 
-            {/* Profile Modal */}
+            {/* ── Profile Modal ── */}
             <AnimatePresence>
                 {showProfileModal && (
                     <ModalShell onClose={() => setShowProfileModal(false)}>
@@ -615,7 +800,7 @@ export default function UserDashboard() {
                 )}
             </AnimatePresence>
 
-            {/* Reschedule Modal */}
+            {/* ── Reschedule Modal ── */}
             <AnimatePresence>
                 {showRescheduleModal && (
                     <ModalShell onClose={() => setShowRescheduleModal(false)}>
@@ -623,11 +808,72 @@ export default function UserDashboard() {
                             <div>
                                 <p className="text-[10px] font-bold tracking-[0.2em] text-neutral-400 uppercase mb-2">Appointments</p>
                                 <h3 className="text-2xl font-black tracking-tight text-neutral-900">Reschedule</h3>
-                                <p className="text-sm text-neutral-500 mt-2">Choose a new date and time and provide your reason.</p>
+                                <p className="text-sm text-neutral-500 mt-2">Choose a new date and time, then provide your reason.</p>
                             </div>
-                            <DashboardInput label="New Date" type="date" min={MIN_RESCHEDULE_DATE} value={rescheduleForm.consultationDate} onChange={(e) => setRescheduleForm((p) => ({ ...p, consultationDate: e.target.value }))} />
-                            <DashboardSelect label="New Time" value={rescheduleForm.consultationTime} options={buildTimeOptions()} onChange={(e) => setRescheduleForm((p) => ({ ...p, consultationTime: e.target.value }))} />
-                            <DashboardTextarea label="Reason for Reschedule" rows={4} value={rescheduleForm.rescheduleReason} onChange={(e) => setRescheduleForm((p) => ({ ...p, rescheduleReason: e.target.value }))} />
+
+                            <DashboardInput
+                                label="New Date"
+                                type="date"
+                                min={MIN_RESCHEDULE_DATE}
+                                value={rescheduleForm.consultationDate}
+                                onChange={(e) => setRescheduleForm((p) => ({ ...p, consultationDate: e.target.value }))}
+                            />
+
+                            {/* ── 30-minute time slot grid ── */}
+                            <div>
+                                <label className="block text-[10px] font-bold tracking-[0.15em] text-neutral-400 uppercase mb-3">
+                                    New Time
+                                </label>
+
+                                {rescheduleForm.consultationDate && (
+                                    <p className="text-[10px] text-neutral-400 mb-3 leading-relaxed">
+                                        Grayed slots are blocked, booked, or within another booking's 2-hour window.
+                                    </p>
+                                )}
+
+                                <div className="grid grid-cols-3 sm:grid-cols-4 gap-2">
+                                    {TIME_SLOTS.map((slot) => {
+                                        const unavailable = rescheduleForm.consultationDate
+                                            ? isSlotUnavailable(rescheduleForm.consultationDate, slot.value)
+                                            : false;
+                                        const isSelected = rescheduleForm.consultationTime === slot.value;
+
+                                        return (
+                                            <button
+                                                key={slot.value}
+                                                type="button"
+                                                disabled={unavailable}
+                                                onClick={() => !unavailable && setRescheduleForm((p) => ({ ...p, consultationTime: slot.value }))}
+                                                className={`
+                                                    py-2.5 px-2 rounded-xl text-[10px] font-bold tracking-wider uppercase border transition-all text-center
+                                                    ${unavailable
+                                                        ? "bg-neutral-100 text-neutral-300 border-neutral-200 cursor-not-allowed line-through"
+                                                        : isSelected
+                                                        ? "bg-black text-white border-black"
+                                                        : "border-neutral-200 text-neutral-700 hover:border-black cursor-pointer"
+                                                    }
+                                                `}
+                                                title={unavailable ? "Unavailable" : slot.label}
+                                            >
+                                                {slot.label}
+                                                {unavailable && (
+                                                    <span className="block text-[8px] normal-case font-medium mt-0.5 no-underline" style={{ textDecoration: "none" }}>
+                                                        Unavail.
+                                                    </span>
+                                                )}
+                                            </button>
+                                        );
+                                    })}
+                                </div>
+                            </div>
+
+                            <DashboardTextarea
+                                label="Reason for Reschedule"
+                                rows={4}
+                                value={rescheduleForm.rescheduleReason}
+                                onChange={(e) => setRescheduleForm((p) => ({ ...p, rescheduleReason: e.target.value }))}
+                            />
+
                             <div className="flex gap-3 pt-2">
                                 <button type="submit" className="rounded-full bg-black px-6 py-3 text-[10px] font-bold tracking-[0.2em] uppercase text-white hover:opacity-80 transition-all cursor-pointer">Confirm</button>
                                 <button type="button" onClick={() => setShowRescheduleModal(false)} className="rounded-full border border-neutral-300 px-6 py-3 text-[10px] font-bold tracking-[0.2em] uppercase text-neutral-700 hover:bg-neutral-100 transition-all cursor-pointer">Close</button>
@@ -640,6 +886,7 @@ export default function UserDashboard() {
     );
 }
 
+<<<<<<< HEAD
 // ── ConsultationTypeBadge ──────────────────────────────────────────────────
 function ConsultationTypeBadge({ type, small = false }) {
     const isOnline = String(type || "onsite").toLowerCase() === "online";
@@ -661,11 +908,22 @@ function ConsultationTypeBadge({ type, small = false }) {
 }
 
 // ── Sub-components ─────────────────────────────────────────────────────────
+=======
+// ── Sub-components ─────────────────────────────────────────────────────────────
+>>>>>>> 7f8110979769dfbf47ca9ff4cb0c8a55ae1e263c
 function ModalShell({ children, onClose }) {
     return (
         <div className="fixed inset-0 z-[100] flex items-center justify-center px-4">
             <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={onClose} className="absolute inset-0 bg-black/30" />
+<<<<<<< HEAD
             <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: 12 }} transition={{ duration: 0.25 }} className="relative w-full max-w-[560px] rounded-3xl border border-neutral-200 bg-white p-6 md:p-8 shadow-2xl">
+=======
+            <motion.div
+                initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: 12 }}
+                transition={{ duration: 0.25 }}
+                className="relative w-full max-w-[580px] rounded-3xl border border-neutral-200 bg-white p-6 md:p-8 shadow-2xl max-h-[90vh] overflow-y-auto"
+            >
+>>>>>>> 7f8110979769dfbf47ca9ff4cb0c8a55ae1e263c
                 {children}
             </motion.div>
         </div>
@@ -716,6 +974,7 @@ function DashboardInput({ label, type = "text", value, onChange, min }) {
         </div>
     );
 }
+<<<<<<< HEAD
 function DashboardSelect({ label, value, onChange, options }) {
     return (
         <div>
@@ -729,6 +988,8 @@ function DashboardSelect({ label, value, onChange, options }) {
         </div>
     );
 }
+=======
+>>>>>>> 7f8110979769dfbf47ca9ff4cb0c8a55ae1e263c
 function DashboardTextarea({ label, value, onChange, rows = 4 }) {
     return (
         <div>

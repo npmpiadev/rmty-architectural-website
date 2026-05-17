@@ -1,9 +1,10 @@
-import React, { useState, useMemo } from "react";
+import React, { useState, useMemo, useEffect } from "react";
 import { ChevronLeft, ChevronRight } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 
 /**
- * CalendarScheduler - Monochromatic, brutalist date & time picker.
+ * CalendarScheduler - Date & time picker that shows blocked and unavailable slots.
+ * Used by end-users when booking appointments.
  */
 export default function CalendarScheduler({
     selectedDate,
@@ -13,9 +14,8 @@ export default function CalendarScheduler({
     unavailableSlots = [],
 }) {
     const today = new Date();
-    today.setHours(0, 0, 0, 0); // Normalize today to midnight for date comparisons
+    today.setHours(0, 0, 0, 0);
 
-    // Helper to format date to YYYY-MM-DD
     const formatDate = (date) => {
         const year = date.getFullYear();
         const month = String(date.getMonth() + 1).padStart(2, "0");
@@ -23,7 +23,6 @@ export default function CalendarScheduler({
         return `${year}-${month}-${day}`;
     };
 
-    // Current view month/year
     const initialDate = selectedDate ? new Date(selectedDate) : new Date();
     const [viewDate, setViewDate] = useState(
         new Date(initialDate.getFullYear(), initialDate.getMonth(), 1),
@@ -33,18 +32,8 @@ export default function CalendarScheduler({
     const currentMonth = viewDate.getMonth();
 
     const monthNames = [
-        "JANUARY",
-        "FEBRUARY",
-        "MARCH",
-        "APRIL",
-        "MAY",
-        "JUNE",
-        "JULY",
-        "AUGUST",
-        "SEPTEMBER",
-        "OCTOBER",
-        "NOVEMBER",
-        "DECEMBER",
+        "JANUARY", "FEBRUARY", "MARCH", "APRIL", "MAY", "JUNE",
+        "JULY", "AUGUST", "SEPTEMBER", "OCTOBER", "NOVEMBER", "DECEMBER",
     ];
 
     const daysOfWeek = ["SUN", "MON", "TUE", "WED", "THU", "FRI", "SAT"];
@@ -53,18 +42,12 @@ export default function CalendarScheduler({
     const calendarDays = useMemo(() => {
         const days = [];
         const firstDayOfMonth = new Date(currentYear, currentMonth, 1).getDay();
-        const daysInMonth = new Date(
-            currentYear,
-            currentMonth + 1,
-            0,
-        ).getDate();
+        const daysInMonth = new Date(currentYear, currentMonth + 1, 0).getDate();
 
-        // Padding for start of month
         for (let i = 0; i < firstDayOfMonth; i++) {
             days.push(null);
         }
 
-        // Days of month
         for (let i = 1; i <= daysInMonth; i++) {
             days.push(new Date(currentYear, currentMonth, i));
         }
@@ -80,7 +63,6 @@ export default function CalendarScheduler({
         setViewDate(new Date(currentYear, currentMonth + 1, 1));
     };
 
-    // Prevents looking back past the current month
     const isPrevDisabled =
         viewDate.getFullYear() === today.getFullYear() &&
         viewDate.getMonth() <= today.getMonth();
@@ -119,8 +101,7 @@ export default function CalendarScheduler({
     const isSlotUnavailable = (dateStr, timeValue) =>
         unavailableSet.has(`${dateStr}|${timeValue}`);
 
-    // Total time slots count (9:00–17:00, 30-min = 17 slots)
-    const TOTAL_SLOTS = 17;
+const TOTAL_SLOTS = 16;
 
     const getUnavailableCountForDate = (dateStr) => {
         let count = 0;
@@ -134,21 +115,19 @@ export default function CalendarScheduler({
     const isDateFullyUnavailable = (dateStr) =>
         getUnavailableCountForDate(dateStr) >= TOTAL_SLOTS;
 
-    // Time slots: strictly 9:00 AM to 5:00 PM in 30-min increments
+    // Time slots: 9:00 AM to 5:00 PM in 30-min increments
     const timeSlots = useMemo(() => {
         const slots = [];
         const now = new Date();
 
-        // Check if the currently selected date is TODAY
         const isTodaySelected =
             selectedDate &&
             new Date(selectedDate).toDateString() === now.toDateString();
 
         for (let h = 9; h <= 17; h++) {
             for (let m of [0, 30]) {
-                if (h === 17 && m > 0) break; // End exactly at 5:00 PM
+                if (h === 17 && m > 0) break;
 
-                // If the date is today, hide times that have already passed
                 if (isTodaySelected) {
                     const currentHour = now.getHours();
                     const currentMin = now.getMinutes();
@@ -156,7 +135,7 @@ export default function CalendarScheduler({
                         h < currentHour ||
                         (h === currentHour && m <= currentMin)
                     ) {
-                        continue; // Skip this slot
+                        continue;
                     }
                 }
 
@@ -182,10 +161,9 @@ export default function CalendarScheduler({
           })
         : "Select a date";
 
-    // When the user picks a new date, clear the time if it's no longer valid
     const handleDateSelect = (dateStr) => {
         onDateChange(dateStr);
-        onTimeChange(""); // Reset time so they are forced to pick a valid one for the new day
+        onTimeChange("");
     };
 
     return (
@@ -241,9 +219,7 @@ export default function CalendarScheduler({
                                     <button
                                         type="button"
                                         disabled={disabled}
-                                        onClick={() =>
-                                            handleDateSelect(formatDate(date))
-                                        }
+                                        onClick={() => handleDateSelect(formatDate(date))}
                                         className={`
                                             w-10 h-10 flex items-center justify-center text-xs font-medium transition-all rounded-full
                                             ${disabled ? "text-neutral-300 cursor-not-allowed" : "cursor-pointer"}
@@ -291,8 +267,7 @@ export default function CalendarScheduler({
                                     exit={{ opacity: 0 }}
                                     className="flex items-center justify-center h-full text-[10px] font-bold tracking-[0.2em] text-red-500 uppercase text-center mt-20"
                                 >
-                                    No available slots <br /> remaining for this
-                                    date
+                                    No available slots <br /> remaining for this date
                                 </motion.div>
                             ) : (
                                 <motion.div
@@ -308,9 +283,7 @@ export default function CalendarScheduler({
                                                 key={slot.value}
                                                 type="button"
                                                 disabled={slotUnavailable}
-                                                onClick={() =>
-                                                    onTimeChange(slot.value)
-                                                }
+                                                onClick={() => onTimeChange(slot.value)}
                                                 className={`
                                                     w-full py-4 text-[11px] font-bold tracking-[0.2em] uppercase transition-all rounded-none
                                                     ${slotUnavailable
