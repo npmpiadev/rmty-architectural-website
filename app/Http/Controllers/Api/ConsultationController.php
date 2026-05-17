@@ -39,7 +39,25 @@ class ConsultationController extends Controller
             'location'          => 'nullable|string|max:255',
             'consultation_date' => 'nullable|date',
             'message'           => 'nullable|string',
+            'consultation_type' => 'nullable|string|in:onsite,online',
         ]);
+
+        // Default to onsite if not provided
+        $consultationType = !empty($validated['consultation_type'])
+            ? $validated['consultation_type']
+            : 'onsite';
+
+        $validated['consultation_type'] = $consultationType;
+
+        // The client never submits a zoom_link — the admin sets it globally in settings.
+        // We resolve it server-side and store it on the record so emails and the
+        // dashboard always reflect whatever link the admin has configured.
+        $zoomLink = null;
+        if ($consultationType === 'online') {
+            $raw      = \App\Models\Setting::getValue('zoom_link', '');
+            $zoomLink = (is_string($raw) && $raw !== '') ? $raw : null;
+        }
+        $validated['zoom_link'] = $zoomLink;
 
         // Block if user already has an active consultation
         $ongoing = Consultation::where('email', $validated['email'])
@@ -108,7 +126,26 @@ class ConsultationController extends Controller
             'status'            => 'sometimes|string|in:pending,accepted,cancelled,rescheduled,archived',
             'is_published'      => 'sometimes|boolean',
             'reschedule_reason' => 'sometimes|nullable|string|max:1000',
+            'consultation_type' => 'sometimes|nullable|string|in:onsite,online',
+            'zoom_link'         => 'sometimes|nullable|url|max:500',
         ]);
+
+        // Determine effective consultation type after this update
+        $effectiveType = $validated['consultation_type']
+            ?? $consultation->consultation_type
+            ?? 'onsite';
+
+        if ($effectiveType === 'online') {
+            // If admin didn't explicitly send a zoom_link in this request,
+            // re-resolve it from the global settings
+            if (!array_key_exists('zoom_link', $validated)) {
+                $raw = \App\Models\Setting::getValue('zoom_link', '');
+                $validated['zoom_link'] = (is_string($raw) && $raw !== '') ? $raw : null;
+            }
+        } else {
+            // Not online — ensure zoom_link is cleared
+            $validated['zoom_link'] = null;
+        }
 
         $oldStatus = strtolower(trim((string) $consultation->status));
 
@@ -155,48 +192,39 @@ class ConsultationController extends Controller
         return response()->json(['message' => 'Consultation deleted successfully.']);
     }
 
-// POST /api/consultations/{id}/remind
-public function remind($id): JsonResponse
-{
-    $consultation = Consultation::findOrFail($id);
+    // POST /api/consultations/{id}/remind
+    public function remind($id): JsonResponse
+    {
+        $consultation = Consultation::findOrFail($id);
 
-    if (empty($consultation->phone)) {
+        if (empty($consultation->phone)) {
+            return response()->json([
+                'message'  => 'No phone number on file for this client.',
+                'sms_sent' => false,
+            ], 422);
+        }
+
+        $allowedStatuses = ['accepted', 'rescheduled', 'pending'];
+
+        if (!in_array(strtolower((string) $consultation->status), $allowedStatuses, true)) {
+            return response()->json([
+                'message'  => 'SMS reminder cannot be sent for this consultation status.',
+                'sms_sent' => false,
+                'status'   => $consultation->status,
+            ], 422);
+        }
+
+        $message = SmsController::buildReminderMessage($consultation);
+        $sent    = SmsController::send($consultation->phone, $message);
+
         return response()->json([
-            'message' => 'No phone number on file for this client.',
-            'sms_sent' => false,
-        ], 422);
+            'message'  => $sent
+                ? 'Appointment reminder sent successfully.'
+                : 'Reminder could not be sent. Check Laravel logs.',
+            'sms_sent' => $sent,
+            'preview'  => $message,
+        ], $sent ? 200 : 500);
     }
-
-    /*
-    |--------------------------------------------------------------------------
-    | Manual Bell Reminder
-    |--------------------------------------------------------------------------
-    | This allows the admin to manually send an SMS reminder by clicking the bell.
-    | It does not require another "Accept" action because the consultation may
-    | already be accepted/confirmed through email or the system flow.
-    */
-    $allowedStatuses = ['accepted', 'rescheduled', 'pending'];
-
-    if (!in_array(strtolower((string) $consultation->status), $allowedStatuses, true)) {
-        return response()->json([
-            'message' => 'SMS reminder cannot be sent for this consultation status.',
-            'sms_sent' => false,
-            'status' => $consultation->status,
-        ], 422);
-    }
-
-    $message = SmsController::buildReminderMessage($consultation);
-
-    $sent = SmsController::send($consultation->phone, $message);
-
-    return response()->json([
-        'message' => $sent
-            ? 'Appointment reminder sent successfully.'
-            : 'Reminder could not be sent. Check Laravel logs.',
-        'sms_sent' => $sent,
-        'preview' => $message,
-    ], $sent ? 200 : 500);
-}
 
     // GET /api/consultations/my  (client — active only)
     public function my(Request $request): JsonResponse
@@ -225,5 +253,27 @@ public function remind($id): JsonResponse
             ->get();
 
         return response()->json(['consultations' => $consultations]);
+    }
+
+    // GET /api/settings/zoom-link  (admin)
+    public function getZoomLink(): JsonResponse
+    {
+        $link = \App\Models\Setting::getValue('zoom_link', '');
+        return response()->json(['zoom_link' => $link]);
+    }
+
+    // PUT /api/settings/zoom-link  (admin)
+    public function setZoomLink(Request $request): JsonResponse
+    {
+        $validated = $request->validate([
+            'zoom_link' => 'nullable|url|max:500',
+        ]);
+
+        \App\Models\Setting::setValue('zoom_link', $validated['zoom_link'] ?? '');
+
+        return response()->json([
+            'message'   => 'Zoom link updated.',
+            'zoom_link' => $validated['zoom_link'] ?? '',
+        ]);
     }
 }

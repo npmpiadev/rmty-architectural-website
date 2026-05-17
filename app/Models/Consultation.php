@@ -28,6 +28,10 @@ class Consultation extends Model
         'status',
         'reschedule_reason',
         'is_published',
+
+        'consultation_type',
+    'zoom_link',
+
     ];
 
     protected $casts = [

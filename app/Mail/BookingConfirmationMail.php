@@ -5,45 +5,54 @@ namespace App\Mail;
 use App\Models\Consultation;
 use Illuminate\Bus\Queueable;
 use Illuminate\Mail\Mailable;
+use Illuminate\Mail\Mailables\Content;
+use Illuminate\Mail\Mailables\Envelope;
 use Illuminate\Queue\SerializesModels;
-use Carbon\Carbon;
 
 class BookingConfirmationMail extends Mailable
 {
     use Queueable, SerializesModels;
 
-    public string $referenceId;        // ← NEW
-    public string $clientName;
-    public string $email;
-    public string $phone;
-    public string $projectType;
-    public string $location;
-    public string $consultationDate;
-    public string $consultationTime;
-    public string $notes;
-    public string $dashboardUrl;
+    public function __construct(public Consultation $consultation) {}
 
-    public function __construct(Consultation $consultation)
+    public function envelope(): Envelope
     {
-        $dt = $consultation->consultation_date
-            ? Carbon::parse($consultation->consultation_date)
-            : null;
-
-        $this->referenceId      = $consultation->reference_id;             // ← NEW
-        $this->clientName       = trim($consultation->first_name . ' ' . $consultation->last_name);
-        $this->email            = $consultation->email;
-        $this->phone            = $consultation->phone ?? '';
-        $this->projectType      = $consultation->project_type ?? 'N/A';
-        $this->location         = $consultation->location ?? 'N/A';
-        $this->consultationDate = $dt ? $dt->format('F j, Y') : 'To be confirmed';
-        $this->consultationTime = $dt ? $dt->format('g:i A')  : 'To be confirmed';
-        $this->notes            = $consultation->message ?? '';
-        $this->dashboardUrl     = config('app.url') . '/user/dashboard';
+        return new Envelope(
+            subject: 'Your Consultation is Confirmed — RMTY Designs',
+        );
     }
 
-    public function build(): self
+    public function content(): Content
     {
-        return $this->subject("Booking Confirmed [{$this->referenceId}] — RMTY Designs")
-                    ->view('emails.booking-confirmation');
+        $date = $this->consultation->consultation_date;
+
+        // Parse the stored datetime string safely
+        $dt = $date
+            ? \Carbon\Carbon::parse(str_replace(' ', 'T', (string) $date))
+            : null;
+
+        $consultationType = strtolower(trim((string) ($this->consultation->consultation_type ?? 'onsite')));
+
+        // zoom_link is already stored on the record by the controller
+        // (resolved from global settings at booking time)
+        $zoomLink = $consultationType === 'online'
+            ? ($this->consultation->zoom_link ?? null)
+            : null;
+
+        return new Content(
+            view: 'emails.booking-confirmation',
+            with: [
+                'clientName'       => trim($this->consultation->first_name . ' ' . $this->consultation->last_name),
+                'consultationDate' => $dt ? $dt->format('l, F j, Y') : 'To be confirmed',
+                'consultationTime' => $dt ? $dt->format('g:i A') : '',
+                'projectType'      => $this->consultation->project_type ?? 'N/A',
+                'location'         => $this->consultation->location ?? '',
+                'phone'            => $this->consultation->phone ?? '',
+                'notes'            => $this->consultation->message ?? '',
+                'consultationType' => $consultationType,
+                'zoomLink'         => $zoomLink,
+                'dashboardUrl'     => rtrim(config('app.url'), '/') . '/user/dashboard',
+            ],
+        );
     }
 }

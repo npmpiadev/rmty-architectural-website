@@ -72,12 +72,19 @@
                                             <td style="padding:12px 0;border-bottom:1px solid #f2f2f2;font-size:13px;font-weight:600;color:#111;text-align:right;">{{ $consultationTime }}</td>
                                         </tr>
                                         <tr>
-                                            <td style="padding:12px 0;border-bottom:1px solid #f2f2f2;font-size:10px;font-weight:700;letter-spacing:0.12em;color:#aaa;text-transform:uppercase;">Location</td>
-                                            <td style="padding:12px 0;border-bottom:1px solid #f2f2f2;font-size:13px;font-weight:600;color:#111;text-align:right;">911 Josefina 2 Sampaloc,<br>Manila, Philippines 1008</td>
-                                        </tr>
-                                        <tr>
                                             <td style="padding:12px 0;border-bottom:1px solid #f2f2f2;font-size:10px;font-weight:700;letter-spacing:0.12em;color:#aaa;text-transform:uppercase;">Project Type</td>
                                             <td style="padding:12px 0;border-bottom:1px solid #f2f2f2;font-size:13px;font-weight:600;color:#111;text-align:right;">{{ $projectType }}</td>
+                                        </tr>
+                                        {{-- Consultation Type --}}
+                                        <tr>
+                                            <td style="padding:12px 0;border-bottom:1px solid #f2f2f2;font-size:10px;font-weight:700;letter-spacing:0.12em;color:#aaa;text-transform:uppercase;">Consultation Type</td>
+                                            <td style="padding:12px 0;border-bottom:1px solid #f2f2f2;font-size:13px;font-weight:600;color:#111;text-align:right;">
+                                                @if(!empty($consultationType) && strtolower($consultationType) === 'online')
+                                                    <span style="font-size:10px;font-weight:700;letter-spacing:0.1em;color:#6d28d9;text-transform:uppercase;background-color:#f5f3ff;padding:4px 12px;border-radius:99px;border:1px solid #ddd6fe;">&#127909;&nbsp; Online</span>
+                                                @else
+                                                    <span style="font-size:10px;font-weight:700;letter-spacing:0.1em;color:#0f766e;text-transform:uppercase;background-color:#f0fdfa;padding:4px 12px;border-radius:99px;border:1px solid #99f6e4;">&#128205;&nbsp; On-site</span>
+                                                @endif
+                                            </td>
                                         </tr>
                                         <tr>
                                             <td style="padding:12px 0;font-size:10px;font-weight:700;letter-spacing:0.12em;color:#aaa;text-transform:uppercase;">Status</td>
@@ -90,19 +97,43 @@
                             </tr>
                         </table>
 
-                        {{-- Onsite notice --}}
-                        <table width="100%" cellpadding="0" cellspacing="0" border="0" style="margin-bottom:22px;">
-                            <tr>
-                                <td style="background-color:#f9f9f9;border-left:3px solid #000;padding:14px 18px;">
-                                    <p style="margin:0 0 3px 0;font-size:10px;font-weight:700;letter-spacing:0.15em;color:#888;text-transform:uppercase;">Onsite Appointment</p>
-                                    <p style="margin:0;font-size:13px;line-height:1.65;color:#333;">
-                                        This appointment will be held <strong>onsite</strong> at our studio.<br>
-                                        911 Josefina 2 Sampaloc, Manila, Philippines 1008<br>
-                                        (+63) 915 896 2275
-                                    </p>
-                                </td>
-                            </tr>
-                        </table>
+                        {{-- Location / Zoom block — conditional on consultation type --}}
+                        @if(!empty($consultationType) && strtolower($consultationType) === 'online')
+
+                            {{-- Online / Zoom notice --}}
+                            <table width="100%" cellpadding="0" cellspacing="0" border="0" style="margin-bottom:22px;">
+                                <tr>
+                                    <td style="background-color:#f5f3ff;border-left:3px solid #7c3aed;padding:14px 18px;">
+                                        <p style="margin:0 0 3px 0;font-size:10px;font-weight:700;letter-spacing:0.15em;color:#7c3aed;text-transform:uppercase;">&#127909;&nbsp; Online Consultation via Zoom</p>
+                                        <p style="margin:0 0 10px 0;font-size:13px;line-height:1.65;color:#4c1d95;">
+                                            This appointment will be held <strong>online</strong>. Please join using the Zoom link below at the scheduled time.
+                                        </p>
+                                        @if(!empty($zoomLink))
+                                            <a href="{{ $zoomLink }}" style="display:inline-block;font-size:12px;font-weight:700;color:#7c3aed;word-break:break-all;text-decoration:underline;">{{ $zoomLink }}</a>
+                                        @else
+                                            <p style="margin:0;font-size:12px;color:#7c3aed;font-style:italic;">Your Zoom link will be shared with you shortly. Please check your email or contact us if you have not received it before the session.</p>
+                                        @endif
+                                    </td>
+                                </tr>
+                            </table>
+
+                        @else
+
+                            {{-- Onsite notice --}}
+                            <table width="100%" cellpadding="0" cellspacing="0" border="0" style="margin-bottom:22px;">
+                                <tr>
+                                    <td style="background-color:#f9f9f9;border-left:3px solid #000;padding:14px 18px;">
+                                        <p style="margin:0 0 3px 0;font-size:10px;font-weight:700;letter-spacing:0.15em;color:#888;text-transform:uppercase;">&#128205;&nbsp; Onsite Appointment</p>
+                                        <p style="margin:0;font-size:13px;line-height:1.65;color:#333;">
+                                            This appointment will be held <strong>onsite</strong> at our studio.<br>
+                                            911 Josefina 2 Sampaloc, Manila, Philippines 1008<br>
+                                            (+63) 915 896 2275
+                                        </p>
+                                    </td>
+                                </tr>
+                            </table>
+
+                        @endif
 
                         @if(!empty($rescheduleReason))
                         {{-- Reschedule reason --}}

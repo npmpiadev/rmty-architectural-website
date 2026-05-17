@@ -96,12 +96,18 @@ const isUpcomingConsultation = (consultation) => {
 
 const getStatusMeta = (status) => {
     switch (status) {
-        case "accepted":   return { label: "Accepted",   className: "border-emerald-200 bg-emerald-50 text-emerald-700", dotClassName: "bg-emerald-500" };
-        case "cancelled":  return { label: "Cancelled",  className: "border-red-200 bg-red-50 text-red-700",             dotClassName: "bg-red-500" };
-        case "rescheduled":return { label: "Rescheduled",className: "border-blue-200 bg-blue-50 text-blue-700",          dotClassName: "bg-blue-500" };
-        case "archived":   return { label: "Archived",   className: "border-neutral-200 bg-neutral-100 text-neutral-500",dotClassName: "bg-neutral-400" };
-        default:           return { label: "Pending",    className: "border-amber-200 bg-amber-50 text-amber-700",       dotClassName: "bg-amber-500" };
+        case "accepted":    return { label: "Accepted",    className: "border-emerald-200 bg-emerald-50 text-emerald-700",  dotClassName: "bg-emerald-500" };
+        case "cancelled":   return { label: "Cancelled",   className: "border-red-200 bg-red-50 text-red-700",              dotClassName: "bg-red-500" };
+        case "rescheduled": return { label: "Rescheduled", className: "border-blue-200 bg-blue-50 text-blue-700",           dotClassName: "bg-blue-500" };
+        case "archived":    return { label: "Archived",    className: "border-neutral-200 bg-neutral-100 text-neutral-500", dotClassName: "bg-neutral-400" };
+        default:            return { label: "Pending",     className: "border-amber-200 bg-amber-50 text-amber-700",        dotClassName: "bg-amber-500" };
     }
+};
+
+const getConsultationTypeMeta = (type) => {
+    const t = String(type || "onsite").toLowerCase();
+    if (t === "online") return { label: "Online", className: "border-violet-200 bg-violet-50 text-violet-700", icon: "🎥" };
+    return { label: "On-site", className: "border-teal-200 bg-teal-50 text-teal-700", icon: "📍" };
 };
 
 const getErrorMessage = async (res) => {
@@ -165,6 +171,49 @@ const AnimatedSelect = ({ value, onChange, options, placeholder, error, label, r
     );
 };
 
+/* ---------------- ZOOM LINK MANAGER MODAL ---------------- */
+const ZoomLinkModal = ({ currentLink, onSave, onClose, saving }) => {
+    const [value, setValue] = useState(currentLink || "");
+
+    return (
+        <motion.div className="fixed inset-0 z-[100] flex items-center justify-center p-4 [font-family:var(--font-neue)]" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
+            <div className="absolute inset-0 bg-black/20 cursor-pointer" onClick={onClose} />
+            <motion.div initial={{ opacity: 0, scale: 0.9, y: 20 }} animate={{ opacity: 1, scale: 1, y: 0 }} exit={{ opacity: 0, scale: 0.9, y: 20 }} transition={springTransition} className="relative w-full max-w-lg rounded-[2rem] bg-white p-8 border border-neutral-100 pointer-events-auto">
+                <div className="mb-6">
+                    <div className="flex items-center gap-3 mb-4">
+                        <div className="flex h-12 w-12 items-center justify-center rounded-full bg-violet-50 text-violet-600">
+                            <VideoIcon className="w-5 h-5" />
+                        </div>
+                        <div>
+                            <h3 className="text-lg font-black text-neutral-900">Zoom Link Settings</h3>
+                            <p className="text-sm font-medium text-neutral-500">Default link used for online consultations.</p>
+                        </div>
+                    </div>
+                </div>
+                <div className="space-y-4">
+                    <div>
+                        <label className="block text-[10px] font-bold tracking-[0.15em] text-neutral-400 uppercase mb-2">Zoom / Meeting URL</label>
+                        <input
+                            type="url"
+                            value={value}
+                            onChange={(e) => setValue(e.target.value)}
+                            placeholder="https://zoom.us/j/..."
+                            className="w-full rounded-xl border border-neutral-200 bg-white px-4 py-3 text-sm font-medium text-neutral-900 outline-none transition-colors focus:border-neutral-900 focus:ring-1 focus:ring-neutral-900 placeholder-neutral-400"
+                        />
+                        <p className="mt-2 text-[11px] text-neutral-400 font-medium">This link is shared with clients who book online consultations.</p>
+                    </div>
+                </div>
+                <div className="flex flex-col gap-2 mt-8">
+                    <button onClick={() => onSave(value)} disabled={saving} className="w-full rounded-full bg-violet-600 px-4 py-3.5 text-sm font-bold text-white transition-all hover:bg-violet-700 disabled:opacity-50 cursor-pointer">
+                        {saving ? "Saving..." : "Save Zoom Link"}
+                    </button>
+                    <button onClick={onClose} className="w-full rounded-full bg-transparent px-4 py-3.5 text-sm font-bold text-neutral-400 transition-all hover:text-neutral-900 cursor-pointer">Cancel</button>
+                </div>
+            </motion.div>
+        </motion.div>
+    );
+};
+
 /* ---------------- MAIN COMPONENT ---------------- */
 export default function AdminBookingConsultations() {
     const location = useLocation();
@@ -186,6 +235,11 @@ export default function AdminBookingConsultations() {
     const [updating, setUpdating] = useState(false);
     const [selectedId, setSelectedId] = useState(null);
     const [remindingId, setRemindingId] = useState(null);
+
+    // Zoom link state
+    const [zoomLink, setZoomLink] = useState("");
+    const [showZoomModal, setShowZoomModal] = useState(false);
+    const [savingZoom, setSavingZoom] = useState(false);
 
     const selected = useMemo(
         () => consultations.find((c) => String(c.id) === String(selectedId)) || null,
@@ -247,10 +301,41 @@ export default function AdminBookingConsultations() {
         }
     };
 
+    const fetchZoomLink = async () => {
+        try {
+            const res = await fetch("/api/settings/zoom-link", { credentials: "include", headers: getAuthHeaders() });
+            if (!res.ok) return;
+            const data = await res.json();
+            setZoomLink(data?.zoom_link || "");
+        } catch (err) {
+            console.error("Failed to fetch zoom link:", err);
+        }
+    };
+
+    const handleSaveZoomLink = async (link) => {
+        setSavingZoom(true);
+        try {
+            const res = await fetch("/api/settings/zoom-link", {
+                method: "PUT",
+                credentials: "include",
+                headers: { ...getAuthHeaders(), "Content-Type": "application/json", "Accept": "application/json" },
+                body: JSON.stringify({ zoom_link: link }),
+            });
+            if (!res.ok) throw new Error(await getErrorMessage(res));
+            setZoomLink(link);
+            setShowZoomModal(false);
+            showToast("Zoom link updated successfully");
+        } catch (err) {
+            alert(err.message || "Failed to save Zoom link.");
+        } finally {
+            setSavingZoom(false);
+        }
+    };
+
     useEffect(() => {
         const init = async () => {
             try { await fetch("/sanctum/csrf-cookie", { credentials: "include" }); } catch (err) { console.error(err); }
-            await fetchConsultations();
+            await Promise.all([fetchConsultations(), fetchZoomLink()]);
         };
         init();
     }, []);
@@ -258,49 +343,27 @@ export default function AdminBookingConsultations() {
     useEffect(() => { setSelectedIds([]); }, [activeTab, page, searchTerm, filterType]);
 
     /* ---------------- REMIND ---------------- */
-   const handleRemind = async (consultation, e) => {
-    e?.stopPropagation();
-
-    if (!consultation?.id) {
-        showToast("Invalid consultation selected.");
-        return;
-    }
-
-    if (!consultation?.phone) {
-        showToast("No phone number on file.");
-        return;
-    }
-
-    setRemindingId(consultation.id);
-
-    try {
-        const res = await fetch(`/api/consultations/${consultation.id}/remind`, {
-            method: "POST",
-            credentials: "include",
-            headers: {
-                ...getAuthHeaders(),
-                Accept: "application/json",
-            },
-        });
-
-        const data = await res.json().catch(() => ({}));
-
-        if (!res.ok) {
-            throw new Error(data.message || `SMS failed with status ${res.status}`);
+    const handleRemind = async (consultation, e) => {
+        e?.stopPropagation();
+        if (!consultation?.id) { showToast("Invalid consultation selected."); return; }
+        if (!consultation?.phone) { showToast("No phone number on file."); return; }
+        setRemindingId(consultation.id);
+        try {
+            const res = await fetch(`/api/consultations/${consultation.id}/remind`, {
+                method: "POST",
+                credentials: "include",
+                headers: { ...getAuthHeaders(), Accept: "application/json" },
+            });
+            const data = await res.json().catch(() => ({}));
+            if (!res.ok) throw new Error(data.message || `SMS failed with status ${res.status}`);
+            showToast(data.sms_sent ? `Reminder sent to ${consultation.first_name || "client"}` : data.message || "Reminder could not be sent.");
+        } catch (err) {
+            console.error(err);
+            showToast(err.message || "Failed to send reminder.");
+        } finally {
+            setRemindingId(null);
         }
-
-        if (data.sms_sent) {
-            showToast(`Reminder sent to ${consultation.first_name || "client"}`);
-        } else {
-            showToast(data.message || "Reminder could not be sent.");
-        }
-    } catch (err) {
-        console.error(err);
-        showToast(err.message || "Failed to send reminder.");
-    } finally {
-        setRemindingId(null);
-    }
-};
+    };
 
     /* ---------------- DATA GROUPING ---------------- */
     const nonArchivedConsultations = consultations.filter((c) => !isArchivedConsultation(c));
@@ -356,15 +419,17 @@ export default function AdminBookingConsultations() {
     const totalPages = Math.max(1, Math.ceil(displayedConsultations.length / PAGE_SIZE));
     useEffect(() => { if (page > totalPages) setPage(totalPages); }, [page, totalPages]);
 
-    const paginated      = displayedConsultations.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
-    const totalBookings  = nonArchivedConsultations.length;
-    const upcomingBookings = nonArchivedConsultations.filter((c) => isUpcomingConsultation(c)).length;
+    const paginated       = displayedConsultations.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
+    const totalBookings   = nonArchivedConsultations.length;
+    const upcomingBookings  = nonArchivedConsultations.filter((c) => isUpcomingConsultation(c)).length;
     const cancelledBookings = cancelledConsultations.length;
+    const onlineBookings    = nonArchivedConsultations.filter((c) => String(c.consultation_type || "").toLowerCase() === "online").length;
 
     const statCards = [
         { label: "Total Bookings",    value: totalBookings,    icon: <CalendarIcon className="w-5 h-5 text-black" /> },
         { label: "Upcoming Bookings", value: upcomingBookings, icon: <ClockIcon className="w-5 h-5 text-blue-600" /> },
-        { label: "Cancelled Bookings",value: cancelledBookings,icon: <BanIcon className="w-5 h-5 text-red-600" /> },
+        { label: "Online Sessions",   value: onlineBookings,   icon: <VideoIcon className="w-5 h-5 text-violet-600" /> },
+        { label: "Cancelled",         value: cancelledBookings,icon: <BanIcon className="w-5 h-5 text-red-600" /> },
     ];
 
     const tabs = [
@@ -516,8 +581,21 @@ export default function AdminBookingConsultations() {
             <div className="mb-6 lg:mb-8">
                 <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-6">
                     <p className="text-sm font-medium text-neutral-500">Manage all consultation booking submissions.</p>
+                    {/* Zoom Link Manager Button */}
+                    <button
+                        onClick={() => setShowZoomModal(true)}
+                        className="inline-flex items-center gap-2 rounded-xl border border-violet-200 bg-violet-50 px-4 py-2.5 text-sm font-bold text-violet-700 hover:bg-violet-100 transition-all cursor-pointer self-start md:self-auto"
+                    >
+                        <VideoIcon className="w-4 h-4" />
+                        <span>Zoom Link</span>
+                        {zoomLink ? (
+                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-violet-200 text-violet-800 text-[9px] font-bold uppercase tracking-wide">Set</span>
+                        ) : (
+                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-neutral-200 text-neutral-500 text-[9px] font-bold uppercase tracking-wide">Not set</span>
+                        )}
+                    </button>
                 </div>
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
                     {statCards.map((s) => (
                         <div key={s.label} className="rounded-2xl border border-neutral-200 bg-white p-5 flex flex-col justify-between min-h-[114px] hover:border-neutral-300">
                             <div className="flex justify-between items-center mb-2">
@@ -617,8 +695,9 @@ export default function AdminBookingConsultations() {
                                         <th className="py-4 px-5 text-[10px] font-bold tracking-[0.15em] text-neutral-400 uppercase">Client</th>
                                         <th className="py-4 px-5 text-[10px] font-bold tracking-[0.15em] text-neutral-400 uppercase">Reference</th>
                                         <th className="py-4 px-5 text-[10px] font-bold tracking-[0.15em] text-neutral-400 uppercase">Project Type</th>
+                                        <th className="py-4 px-5 text-[10px] font-bold tracking-[0.15em] text-neutral-400 uppercase">Mode</th>
                                         <th className="py-4 px-5 text-[10px] font-bold tracking-[0.15em] text-neutral-400 uppercase text-center">Schedule</th>
-                                        <th className="py-4 px-5 text-[10px] font-bold tracking-[0.15em] text-neutral-400 uppercase text-center">Booking Status</th>
+                                        <th className="py-4 px-5 text-[10px] font-bold tracking-[0.15em] text-neutral-400 uppercase text-center">Status</th>
                                         <th className="py-4 px-5 text-[10px] font-bold tracking-[0.15em] text-neutral-400 uppercase text-right">Action</th>
                                     </tr>
                                 </thead>
@@ -626,6 +705,7 @@ export default function AdminBookingConsultations() {
                                     {paginated.map((c) => {
                                         const status = getBookingStatus(c);
                                         const statusMeta = getStatusMeta(status);
+                                        const typeMeta = getConsultationTypeMeta(c.consultation_type);
                                         const isReminding = remindingId === c.id;
 
                                         return (
@@ -649,6 +729,13 @@ export default function AdminBookingConsultations() {
                                                 </td>
                                                 <td className="py-4 px-5 align-middle">
                                                     <span className="inline-flex items-center px-2.5 py-1 rounded-md text-[10px] font-bold uppercase tracking-wider border bg-neutral-50 text-neutral-600 border-neutral-200">{c.project_type || "N/A"}</span>
+                                                </td>
+                                                {/* Consultation Type column */}
+                                                <td className="py-4 px-5 align-middle">
+                                                    <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-[10px] font-bold uppercase tracking-wider border ${typeMeta.className}`}>
+                                                        <span>{typeMeta.icon}</span>
+                                                        {typeMeta.label}
+                                                    </span>
                                                 </td>
                                                 <td className="py-4 px-5 align-middle text-center">
                                                     <div className="flex flex-col items-center gap-1">
@@ -737,6 +824,57 @@ export default function AdminBookingConsultations() {
                                         <span className="text-sm font-medium text-neutral-700">{selected.location || "N/A"}</span>
                                     </div>
                                 </div>
+
+                                {/* Consultation Type + Zoom Link in drawer */}
+                                <div className="grid grid-cols-2 gap-4">
+                                    <div>
+                                        <p className="text-[10px] font-bold tracking-[0.15em] text-neutral-400 uppercase mb-2">Consultation Mode</p>
+                                        {(() => {
+                                            const typeMeta = getConsultationTypeMeta(selected.consultation_type);
+                                            return (
+                                                <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-[10px] font-bold uppercase tracking-wider border ${typeMeta.className}`}>
+                                                    <span>{typeMeta.icon}</span>
+                                                    {typeMeta.label}
+                                                </span>
+                                            );
+                                        })()}
+                                    </div>
+                                    <div>
+                                        <p className="text-[10px] font-bold tracking-[0.15em] text-neutral-400 uppercase mb-2">Booking Status</p>
+                                        {(() => { const status = getBookingStatus(selected); const meta = getStatusMeta(status); return (
+                                            <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-[10px] font-bold uppercase tracking-wider border ${meta.className}`}>
+                                                <span className={`w-1.5 h-1.5 rounded-full ${meta.dotClassName}`} />{meta.label}
+                                            </span>
+                                        ); })()}
+                                    </div>
+                                </div>
+
+                                {/* Zoom link section — shown for online consultations */}
+                                {String(selected.consultation_type || "").toLowerCase() === "online" && (
+                                    <div>
+                                        <p className="text-[10px] font-bold tracking-[0.15em] text-neutral-400 uppercase mb-2">Meeting Link</p>
+                                        {(selected.zoom_link || zoomLink) ? (
+                                            <a
+                                                href={selected.zoom_link || zoomLink}
+                                                target="_blank"
+                                                rel="noopener noreferrer"
+                                                className="inline-flex items-center gap-2 rounded-xl border border-violet-200 bg-violet-50 px-4 py-2.5 text-sm font-bold text-violet-700 hover:bg-violet-100 transition-all cursor-pointer max-w-full"
+                                                onClick={(e) => e.stopPropagation()}
+                                            >
+                                                <VideoIcon className="w-4 h-4 shrink-0" />
+                                                <span className="truncate text-xs">{selected.zoom_link || zoomLink}</span>
+                                                <ExternalLinkIcon className="w-3 h-3 shrink-0" />
+                                            </a>
+                                        ) : (
+                                            <div className="flex items-center gap-2 rounded-xl border border-neutral-200 bg-neutral-50 px-4 py-2.5">
+                                                <VideoIcon className="w-4 h-4 text-neutral-400" />
+                                                <span className="text-xs font-medium text-neutral-400">No Zoom link set.</span>
+                                                <button onClick={() => setShowZoomModal(true)} className="ml-auto text-[10px] font-bold text-violet-600 hover:text-violet-800 uppercase tracking-wide cursor-pointer">Set Link</button>
+                                            </div>
+                                        )}
+                                    </div>
+                                )}
+
                                 <div className="grid grid-cols-2 gap-4">
                                     <div>
                                         <p className="text-[10px] font-bold tracking-[0.15em] text-neutral-400 uppercase mb-2">Date</p>
@@ -748,14 +886,7 @@ export default function AdminBookingConsultations() {
                                         <span className="text-sm font-bold text-neutral-900">{formatTimeOnly(selected.consultation_date) || "Not Specified"}</span>
                                     </div>
                                 </div>
-                                <div>
-                                    <p className="text-[10px] font-bold tracking-[0.15em] text-neutral-400 uppercase mb-2">Booking Status</p>
-                                    {(() => { const status = getBookingStatus(selected); const meta = getStatusMeta(status); return (
-                                        <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-[10px] font-bold uppercase tracking-wider border ${meta.className}`}>
-                                            <span className={`w-1.5 h-1.5 rounded-full ${meta.dotClassName}`} />{meta.label}
-                                        </span>
-                                    ); })()}
-                                </div>
+
                                 {selected.reschedule_reason && (
                                     <div>
                                         <p className="text-[10px] font-bold tracking-[0.15em] text-neutral-400 uppercase mb-2">Reschedule Note</p>
@@ -918,6 +1049,18 @@ export default function AdminBookingConsultations() {
                 )}
             </AnimatePresence>
 
+            {/* ZOOM LINK MODAL */}
+            <AnimatePresence>
+                {showZoomModal && (
+                    <ZoomLinkModal
+                        currentLink={zoomLink}
+                        onSave={handleSaveZoomLink}
+                        onClose={() => setShowZoomModal(false)}
+                        saving={savingZoom}
+                    />
+                )}
+            </AnimatePresence>
+
             {/* TOAST */}
             <AnimatePresence>
                 {successMessage && (
@@ -975,4 +1118,10 @@ function SearchIcon({ className = "w-4 h-4" }) {
 }
 function RefreshIcon({ className = "w-4 h-4" }) {
     return <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" className={className}><path d="M21 12a9 9 0 1 1-9-9c2.52 0 4.93 1 6.74 2.74L21 8" /><path d="M21 3v5h-5" /></svg>;
+}
+function VideoIcon({ className = "w-4 h-4" }) {
+    return <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" className={className}><polygon points="23 7 16 12 23 17 23 7" /><rect x="1" y="5" width="15" height="14" rx="2" ry="2" /></svg>;
+}
+function ExternalLinkIcon({ className = "w-4 h-4" }) {
+    return <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" className={className}><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6" /><polyline points="15 3 21 3 21 9" /><line x1="10" y1="14" x2="21" y2="3" /></svg>;
 }

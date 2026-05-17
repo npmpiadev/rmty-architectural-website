@@ -75,6 +75,17 @@
                                             <td style="padding:12px 0;border-bottom:1px solid #f2f2f2;font-size:10px;font-weight:700;letter-spacing:0.12em;color:#aaa;text-transform:uppercase;">Project Type</td>
                                             <td style="padding:12px 0;border-bottom:1px solid #f2f2f2;font-size:13px;font-weight:600;color:#111;text-align:right;">{{ $projectType }}</td>
                                         </tr>
+                                        {{-- Consultation Type --}}
+                                        <tr>
+                                            <td style="padding:12px 0;border-bottom:1px solid #f2f2f2;font-size:10px;font-weight:700;letter-spacing:0.12em;color:#aaa;text-transform:uppercase;">Consultation Type</td>
+                                            <td style="padding:12px 0;border-bottom:1px solid #f2f2f2;font-size:13px;font-weight:600;color:#111;text-align:right;">
+                                                @if(!empty($consultationType) && strtolower($consultationType) === 'online')
+                                                    <span style="font-size:10px;font-weight:700;letter-spacing:0.1em;color:#6d28d9;text-transform:uppercase;background-color:#f5f3ff;padding:4px 12px;border-radius:99px;border:1px solid #ddd6fe;">&#127909;&nbsp; Online</span>
+                                                @else
+                                                    <span style="font-size:10px;font-weight:700;letter-spacing:0.1em;color:#0f766e;text-transform:uppercase;background-color:#f0fdfa;padding:4px 12px;border-radius:99px;border:1px solid #99f6e4;">&#128205;&nbsp; On-site</span>
+                                                @endif
+                                            </td>
+                                        </tr>
                                         <tr>
                                             <td style="padding:12px 0;font-size:10px;font-weight:700;letter-spacing:0.12em;color:#aaa;text-transform:uppercase;">Status</td>
                                             <td style="padding:12px 0;text-align:right;">

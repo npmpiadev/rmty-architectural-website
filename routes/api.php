@@ -148,6 +148,8 @@ Route::get('/admin/consultations', [ConsultationController::class, 'index']);
 Route::put('/consultations/{id}', [ConsultationController::class, 'update']);
 Route::post('/consultations/{id}', [ConsultationController::class, 'update']);
 Route::delete('/consultations/{id}', [ConsultationController::class, 'destroy']);
+    Route::get('/settings/zoom-link', [ConsultationController::class, 'getZoomLink']);
+    Route::put('/settings/zoom-link', [ConsultationController::class, 'setZoomLink']);
 
 // Manual SMS reminder from admin bell button
 Route::post('/consultations/{id}/remind', [ConsultationController::class, 'remind']);

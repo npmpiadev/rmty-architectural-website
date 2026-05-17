@@ -28,7 +28,7 @@ function statusClasses(s) {
     if (v === "rescheduled")  return "border-blue-200 bg-blue-50 text-blue-700";
     if (v === "cancelled")    return "border-red-200 bg-red-50 text-red-700";
     if (v === "completed")    return "border-neutral-300 bg-neutral-100 text-neutral-700";
-    return "border-amber-200 bg-amber-50 text-amber-700"; // pending
+    return "border-amber-200 bg-amber-50 text-amber-700";
 }
 
 function buildTimeOptions() {
@@ -58,9 +58,7 @@ function useAuthGuard() {
     const user  = (() => { try { return JSON.parse(localStorage.getItem("user")); } catch { return null; } })();
 
     useEffect(() => {
-        if (!token || !user) {
-            navigate("/auth", { replace: true });
-        }
+        if (!token || !user) navigate("/auth", { replace: true });
     }, [token, user, navigate]);
 
     return { token, user };
@@ -98,6 +96,9 @@ function normalizeConsult(c) {
         rescheduleReason: c.reschedule_reason ?? "",
         createdAt:        c.created_at ?? "",
         updatedAt:        c.updated_at ?? "",
+        // ── new fields ──
+        consultationType: String(c.consultation_type ?? "onsite").toLowerCase(),
+        zoomLink:         c.zoom_link ?? null,
     };
 }
 
@@ -108,12 +109,12 @@ export default function UserDashboard() {
 
     const profileDropdownRef = useRef(null);
 
-    const [loading,              setLoading]              = useState(true);
-    const [appointments,         setAppointments]         = useState([]);
-    const [selectedId,           setSelectedId]           = useState(null);
-    const [showProfileDropdown,  setShowProfileDropdown]  = useState(false);
-    const [showProfileModal,     setShowProfileModal]     = useState(false);
-    const [showRescheduleModal,  setShowRescheduleModal]  = useState(false);
+    const [loading,             setLoading]             = useState(true);
+    const [appointments,        setAppointments]        = useState([]);
+    const [selectedId,          setSelectedId]          = useState(null);
+    const [showProfileDropdown, setShowProfileDropdown] = useState(false);
+    const [showProfileModal,    setShowProfileModal]    = useState(false);
+    const [showRescheduleModal, setShowRescheduleModal] = useState(false);
 
     const [profileForm, setProfileForm] = useState({
         firstName: "", lastName: "", email: "", phone: "",
@@ -123,27 +124,20 @@ export default function UserDashboard() {
         consultationDate: "", consultationTime: "", rescheduleReason: "",
     });
 
-    // ── Load appointments from API ────────────────────────────────────────
+    // ── Load appointments ─────────────────────────────────────────────────
     useEffect(() => {
         if (!token) return;
-
         (async () => {
             try {
-                // Fetch ALL consultations for this user by email
-                const data = await apiFetch(
-                    `/api/consultations/my-all`,
-                    token
-                );
+                const data = await apiFetch("/api/consultations/my-all", token);
                 const list = Array.isArray(data.consultations)
                     ? data.consultations.map(normalizeConsult)
                     : Array.isArray(data)
                     ? data.map(normalizeConsult)
                     : [];
-
                 setAppointments(list);
                 setSelectedId(list[0]?.id ?? null);
             } catch (err) {
-                // If endpoint not yet set up, fallback gracefully
                 console.warn("Could not load appointments:", err.message);
             } finally {
                 setLoading(false);
@@ -151,7 +145,7 @@ export default function UserDashboard() {
         })();
     }, [token]);
 
-    // ── Prefill profile form from localStorage user ───────────────────────
+    // ── Prefill profile form ──────────────────────────────────────────────
     useEffect(() => {
         if (!user) return;
         const parts = (user.name ?? "").split(" ");
@@ -166,9 +160,8 @@ export default function UserDashboard() {
     // ── Close dropdown on outside click ──────────────────────────────────
     useEffect(() => {
         const handler = (e) => {
-            if (profileDropdownRef.current && !profileDropdownRef.current.contains(e.target)) {
+            if (profileDropdownRef.current && !profileDropdownRef.current.contains(e.target))
                 setShowProfileDropdown(false);
-            }
         };
         document.addEventListener("mousedown", handler);
         return () => document.removeEventListener("mousedown", handler);
@@ -176,8 +169,10 @@ export default function UserDashboard() {
 
     const selected = useMemo(
         () => appointments.find((a) => a.id === selectedId) ?? null,
-        [appointments, selectedId]
+        [appointments, selectedId],
     );
+
+    const isOnline = selected?.consultationType === "online";
 
     const displayName = profileForm.firstName?.trim() || user?.email?.split("@")[0] || "Client";
     const initials    = `${profileForm.firstName?.[0] ?? "C"}${profileForm.lastName?.[0] ?? ""}`.toUpperCase();
@@ -226,8 +221,6 @@ export default function UserDashboard() {
 
     async function handleSaveProfile(e) {
         e.preventDefault();
-        // Profile update is local for now (no dedicated endpoint in spec)
-        // Update localStorage user object
         const updated = {
             ...user,
             first_name: profileForm.firstName,
@@ -237,19 +230,13 @@ export default function UserDashboard() {
             phone:      profileForm.phone,
         };
         localStorage.setItem("user", JSON.stringify(updated));
-
-        await Swal.fire({
-            icon: "success",
-            title: "Profile updated",
-            confirmButtonColor: "#000000",
-        });
+        await Swal.fire({ icon: "success", title: "Profile updated", confirmButtonColor: "#000000" });
         setShowProfileModal(false);
         setShowProfileDropdown(false);
     }
 
     async function handleCancelAppointment() {
         if (!selected) return;
-
         const result = await Swal.fire({
             icon: "warning",
             title: "Cancel appointment?",
@@ -260,26 +247,19 @@ export default function UserDashboard() {
             confirmButtonColor: "#000000",
         });
         if (!result.isConfirmed) return;
-
         try {
             await apiFetch(`/api/consultations/${selected.id}`, token, {
                 method: "PUT",
                 body: JSON.stringify({ status: "cancelled" }),
             });
-
             setAppointments((prev) =>
                 prev.map((a) =>
                     a.id === selected.id
                         ? { ...a, status: "cancelled", updatedAt: new Date().toISOString() }
-                        : a
-                )
+                        : a,
+                ),
             );
-
-            await Swal.fire({
-                icon: "success",
-                title: "Appointment cancelled",
-                confirmButtonColor: "#000000",
-            });
+            await Swal.fire({ icon: "success", title: "Appointment cancelled", confirmButtonColor: "#000000" });
         } catch (err) {
             Swal.fire({ icon: "error", title: "Failed", text: err.message, confirmButtonColor: "#000000" });
         }
@@ -298,75 +278,47 @@ export default function UserDashboard() {
 
     async function handleConfirmReschedule(e) {
         e.preventDefault();
-
         if (!rescheduleForm.consultationDate || !rescheduleForm.consultationTime || !rescheduleForm.rescheduleReason.trim()) {
-            await Swal.fire({
-                icon: "warning",
-                title: "Incomplete details",
-                text: "Please fill in all reschedule fields.",
-                confirmButtonColor: "#000000",
-            });
+            await Swal.fire({ icon: "warning", title: "Incomplete details", text: "Please fill in all reschedule fields.", confirmButtonColor: "#000000" });
             return;
         }
-
         const result = await Swal.fire({
-            icon: "question",
-            title: "Reschedule appointment?",
-            showCancelButton: true,
-            confirmButtonText: "Yes, reschedule",
-            cancelButtonText: "Cancel",
-            confirmButtonColor: "#000000",
+            icon: "question", title: "Reschedule appointment?",
+            showCancelButton: true, confirmButtonText: "Yes, reschedule",
+            cancelButtonText: "Cancel", confirmButtonColor: "#000000",
         });
         if (!result.isConfirmed || !selected) return;
-
         const newDateTime = `${rescheduleForm.consultationDate} ${rescheduleForm.consultationTime}:00`;
-
         try {
             await apiFetch(`/api/consultations/${selected.id}`, token, {
                 method: "PUT",
                 body: JSON.stringify({
-                    status:             "rescheduled",
-                    consultation_date:  newDateTime,
-                    reschedule_reason:  rescheduleForm.rescheduleReason,
+                    status:            "rescheduled",
+                    consultation_date: newDateTime,
+                    reschedule_reason: rescheduleForm.rescheduleReason,
                 }),
             });
-
             setAppointments((prev) =>
                 prev.map((a) =>
                     a.id === selected.id
-                        ? {
-                            ...a,
-                            status:           "rescheduled",
-                            consultationDate: newDateTime,
-                            rescheduleReason: rescheduleForm.rescheduleReason,
-                            updatedAt:        new Date().toISOString(),
-                          }
-                        : a
-                )
+                        ? { ...a, status: "rescheduled", consultationDate: newDateTime, rescheduleReason: rescheduleForm.rescheduleReason, updatedAt: new Date().toISOString() }
+                        : a,
+                ),
             );
-
             setShowRescheduleModal(false);
-
-            await Swal.fire({
-                icon: "success",
-                title: "Appointment rescheduled",
-                confirmButtonColor: "#000000",
-            });
+            await Swal.fire({ icon: "success", title: "Appointment rescheduled", confirmButtonColor: "#000000" });
         } catch (err) {
             Swal.fire({ icon: "error", title: "Failed", text: err.message, confirmButtonColor: "#000000" });
         }
     }
 
-    // ── Loading / auth ────────────────────────────────────────────────────
-    if (!token || !user) return null; // useAuthGuard handles redirect
+    if (!token || !user) return null;
 
     if (loading) {
         return (
             <div className="flex flex-col items-center justify-center min-h-screen gap-4 bg-gray-100 [font-family:var(--font-neue)]">
                 <div className="w-8 h-8 border-4 border-neutral-200 border-t-black rounded-full animate-spin" />
-                <p className="text-[10px] font-bold tracking-widest text-neutral-400 uppercase">
-                    Loading Dashboard
-                </p>
+                <p className="text-[10px] font-bold tracking-widest text-neutral-400 uppercase">Loading Dashboard</p>
             </div>
         );
     }
@@ -385,20 +337,13 @@ export default function UserDashboard() {
                             </div>
                         </div>
                         <nav className="space-y-2">
-                            <button
-                                type="button"
-                                className="w-full flex items-center gap-3 rounded-2xl px-4 py-3 text-left bg-neutral-700 text-white cursor-pointer"
-                            >
+                            <button type="button" className="w-full flex items-center gap-3 rounded-2xl px-4 py-3 text-left bg-neutral-700 text-white cursor-pointer">
                                 <CalendarIcon className="w-5 h-5" />
                                 <span className="text-sm font-bold tracking-wide">Appointments</span>
                             </button>
                         </nav>
                     </div>
-                    <button
-                        type="button"
-                        onClick={handleLogout}
-                        className="w-full flex items-center gap-3 rounded-2xl px-4 py-3 text-left transition-all bg-white/10 text-white hover:bg-white/20 cursor-pointer"
-                    >
+                    <button type="button" onClick={handleLogout} className="w-full flex items-center gap-3 rounded-2xl px-4 py-3 text-left transition-all bg-white/10 text-white hover:bg-white/20 cursor-pointer">
                         <LogoutIcon className="w-5 h-5" />
                         <span className="text-sm font-bold tracking-wide">Logout</span>
                     </button>
@@ -414,48 +359,25 @@ export default function UserDashboard() {
                                 <p className="text-[10px] font-bold tracking-[0.15em] text-neutral-400 uppercase mb-1">Today</p>
                                 <p className="text-sm font-bold text-neutral-900">{today}</p>
                             </div>
-
                             <div className="flex items-center gap-3">
-                                {/* Bell */}
                                 <button type="button" className="relative w-11 h-11 rounded-full border border-neutral-200 bg-white flex items-center justify-center text-neutral-700 hover:border-neutral-300 transition-colors cursor-pointer">
                                     <BellIcon className="w-5 h-5" />
-                                    {notifications.length > 0 && (
-                                        <span className="absolute top-2 right-2 w-2.5 h-2.5 rounded-full bg-red-500" />
-                                    )}
+                                    {notifications.length > 0 && <span className="absolute top-2 right-2 w-2.5 h-2.5 rounded-full bg-red-500" />}
                                 </button>
-
-                                {/* Profile dropdown */}
                                 <div className="relative" ref={profileDropdownRef}>
-                                    <button
-                                        type="button"
-                                        onClick={() => setShowProfileDropdown((p) => !p)}
-                                        className="flex items-center gap-3 rounded-full border border-neutral-200 bg-white px-3 py-2 hover:border-neutral-300 transition-colors cursor-pointer"
-                                    >
-                                        <div className="w-9 h-9 rounded-full bg-neutral-900 text-white flex items-center justify-center text-sm font-black uppercase">
-                                            {initials}
-                                        </div>
+                                    <button type="button" onClick={() => setShowProfileDropdown((p) => !p)} className="flex items-center gap-3 rounded-full border border-neutral-200 bg-white px-3 py-2 hover:border-neutral-300 transition-colors cursor-pointer">
+                                        <div className="w-9 h-9 rounded-full bg-neutral-900 text-white flex items-center justify-center text-sm font-black uppercase">{initials}</div>
                                         <div className="hidden sm:block text-left">
                                             <p className="text-sm font-bold text-neutral-900 leading-tight">{displayName}</p>
                                             <p className="text-[11px] font-medium text-neutral-500">Client</p>
                                         </div>
                                         <ChevronDownIcon className="w-4 h-4 text-neutral-500" />
                                     </button>
-
                                     <AnimatePresence>
                                         {showProfileDropdown && (
-                                            <motion.div
-                                                initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }}
-                                                exit={{ opacity: 0, y: 8 }} transition={{ duration: 0.2 }}
-                                                className="absolute right-0 mt-3 w-[200px] rounded-2xl border border-neutral-200 bg-white shadow-xl overflow-hidden z-50"
-                                            >
-                                                <button type="button" onClick={() => { setShowProfileModal(true); setShowProfileDropdown(false); }}
-                                                    className="w-full px-4 py-3 text-left text-sm font-medium text-neutral-700 hover:bg-neutral-50 transition-colors cursor-pointer">
-                                                    Edit Profile
-                                                </button>
-                                                <button type="button" onClick={handleLogout}
-                                                    className="w-full px-4 py-3 text-left text-sm font-medium text-red-600 hover:bg-red-50 transition-colors cursor-pointer">
-                                                    Logout
-                                                </button>
+                                            <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: 8 }} transition={{ duration: 0.2 }} className="absolute right-0 mt-3 w-[200px] rounded-2xl border border-neutral-200 bg-white shadow-xl overflow-hidden z-50">
+                                                <button type="button" onClick={() => { setShowProfileModal(true); setShowProfileDropdown(false); }} className="w-full px-4 py-3 text-left text-sm font-medium text-neutral-700 hover:bg-neutral-50 transition-colors cursor-pointer">Edit Profile</button>
+                                                <button type="button" onClick={handleLogout} className="w-full px-4 py-3 text-left text-sm font-medium text-red-600 hover:bg-red-50 transition-colors cursor-pointer">Logout</button>
                                             </motion.div>
                                         )}
                                     </AnimatePresence>
@@ -466,11 +388,7 @@ export default function UserDashboard() {
 
                     {/* Content */}
                     <main className="px-4 md:px-6 lg:px-8 py-6">
-                        <motion.div
-                            initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }}
-                            transition={{ duration: 0.4, ease: smoothEase }}
-                            className="space-y-6"
-                        >
+                        <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.4, ease: smoothEase }} className="space-y-6">
                             <div>
                                 <h2 className="text-2xl md:text-3xl font-black tracking-tight text-neutral-900 mb-1.5">My Appointments</h2>
                                 <p className="text-sm font-medium text-neutral-500">Track your consultation request and manage your schedule.</p>
@@ -478,15 +396,15 @@ export default function UserDashboard() {
 
                             {/* Stat cards */}
                             <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-                                <StatCard label="Current Status"     value={selected ? fmtStatus(selected.status) : "—"} icon={<ActivityIcon />} />
-                                <StatCard label="Consultation Date"  value={selected ? fmtDate(selected.consultationDate) : "—"} icon={<CalendarIcon />} />
-                                <StatCard label="Consultation Time"  value={selected ? fmtTime(selected.consultationDate) : "—"} icon={<ClockIcon />} />
+                                <StatCard label="Current Status"    value={selected ? fmtStatus(selected.status) : "—"}                        icon={<ActivityIcon />} />
+                                <StatCard label="Consultation Date" value={selected ? fmtDate(selected.consultationDate) : "—"}                 icon={<CalendarIcon />} />
+                                <StatCard label="Consultation Time" value={selected ? fmtTime(selected.consultationDate) : "—"}                 icon={<ClockIcon />} />
                             </div>
 
                             <div className="grid grid-cols-1 xl:grid-cols-3 gap-6 items-start">
                                 <div className="xl:col-span-2 space-y-6">
 
-                                    {/* Appointment overview */}
+                                    {/* ── Appointment overview ── */}
                                     <section className="rounded-2xl border border-neutral-200 bg-white overflow-hidden">
                                         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 px-6 py-5 border-b border-neutral-100 bg-neutral-50/50">
                                             <div>
@@ -494,25 +412,83 @@ export default function UserDashboard() {
                                                 <p className="text-xs font-medium text-neutral-400 mt-1">Details from your submitted form</p>
                                             </div>
                                             {selected && (
-                                                <span className={`inline-flex items-center rounded-full border px-3 py-1.5 text-[10px] font-bold uppercase tracking-[0.15em] ${statusClasses(selected.status)}`}>
-                                                    {fmtStatus(selected.status)}
-                                                </span>
+                                                <div className="flex items-center gap-2 flex-wrap">
+                                                    {/* Consultation type badge */}
+                                                    <ConsultationTypeBadge type={selected.consultationType} />
+                                                    {/* Status badge */}
+                                                    <span className={`inline-flex items-center rounded-full border px-3 py-1.5 text-[10px] font-bold uppercase tracking-[0.15em] ${statusClasses(selected.status)}`}>
+                                                        {fmtStatus(selected.status)}
+                                                    </span>
+                                                </div>
                                             )}
                                         </div>
 
                                         {!selected ? (
                                             <div className="p-8 text-center">
                                                 <p className="text-sm font-medium text-neutral-500 mb-4">No appointment found.</p>
-                                                <button
-                                                    type="button"
-                                                    onClick={() => navigate("/appointments")}
-                                                    className="rounded-full bg-black px-6 py-3 text-[10px] font-bold tracking-[0.2em] uppercase text-white hover:opacity-80 transition-all cursor-pointer"
-                                                >
+                                                <button type="button" onClick={() => navigate("/appointments")} className="rounded-full bg-black px-6 py-3 text-[10px] font-bold tracking-[0.2em] uppercase text-white hover:opacity-80 transition-all cursor-pointer">
                                                     Book a Consultation
                                                 </button>
                                             </div>
                                         ) : (
                                             <div className="p-6 space-y-6">
+
+                                                {/* ── Online meeting link banner ── */}
+                                                <AnimatePresence>
+                                                    {isOnline && (
+                                                        <motion.div
+                                                            key="zoom-banner"
+                                                            initial={{ opacity: 0, y: -6 }}
+                                                            animate={{ opacity: 1, y: 0 }}
+                                                            exit={{ opacity: 0, y: -6 }}
+                                                            transition={{ duration: 0.25 }}
+                                                            className="rounded-xl border border-blue-200 bg-blue-50 px-5 py-4"
+                                                        >
+                                                            <div className="flex items-start gap-3">
+                                                                <div className="mt-0.5 shrink-0 w-8 h-8 rounded-full bg-blue-100 flex items-center justify-center text-blue-600">
+                                                                    <VideoIcon className="w-4 h-4" />
+                                                                </div>
+                                                                <div className="flex-1 min-w-0">
+                                                                    <p className="text-[10px] font-bold tracking-[0.15em] uppercase text-blue-700 mb-1">
+                                                                        Online / Video Consultation
+                                                                    </p>
+                                                                    {selected.zoomLink ? (
+                                                                        <>
+                                                                            <p className="text-xs text-blue-700 mb-3 leading-relaxed">
+                                                                                Your meeting link is ready. Join at the scheduled time using the button below.
+                                                                            </p>
+                                                                            <div className="flex flex-col sm:flex-row gap-2">
+                                                                                <a
+                                                                                    href={selected.zoomLink}
+                                                                                    target="_blank"
+                                                                                    rel="noopener noreferrer"
+                                                                                    className="inline-flex items-center gap-2 rounded-full bg-blue-600 px-5 py-2.5 text-[10px] font-bold tracking-[0.15em] uppercase text-white hover:bg-blue-700 transition-all"
+                                                                                >
+                                                                                    <VideoIcon className="w-3.5 h-3.5" />
+                                                                                    Join Meeting
+                                                                                </a>
+                                                                                <button
+                                                                                    type="button"
+                                                                                    onClick={() => { navigator.clipboard.writeText(selected.zoomLink); }}
+                                                                                    className="inline-flex items-center gap-2 rounded-full border border-blue-200 bg-white px-5 py-2.5 text-[10px] font-bold tracking-[0.15em] uppercase text-blue-700 hover:bg-blue-50 transition-all cursor-pointer"
+                                                                                >
+                                                                                    <CopyIcon className="w-3.5 h-3.5" />
+                                                                                    Copy Link
+                                                                                </button>
+                                                                            </div>
+                                                                            <p className="text-[10px] text-blue-500 mt-2 break-all">{selected.zoomLink}</p>
+                                                                        </>
+                                                                    ) : (
+                                                                        <p className="text-xs text-blue-700 leading-relaxed">
+                                                                            Your meeting link will be sent to your email before the appointment.
+                                                                        </p>
+                                                                    )}
+                                                                </div>
+                                                            </div>
+                                                        </motion.div>
+                                                    )}
+                                                </AnimatePresence>
+
                                                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                                                     <DetailCard title="Client Information">
                                                         <FieldRow label="First Name" value={selected.firstName} />
@@ -524,8 +500,8 @@ export default function UserDashboard() {
                                                     <DetailCard title="Project Information">
                                                         <FieldRow label="Location"     value={selected.location || "—"} />
                                                         <FieldRow label="Project Type" value={selected.projectType || "—"} />
+                                                        <FieldRow label="Format"       value={selected.consultationType === "online" ? "Online / Video Call" : "Onsite Visit"} />
                                                         <FieldRow label="Submitted"    value={fmtDateTime(selected.createdAt)} />
-                                                        <FieldRow label="Last Updated" value={fmtDateTime(selected.updatedAt)} />
                                                     </DetailCard>
                                                 </div>
 
@@ -537,7 +513,7 @@ export default function UserDashboard() {
 
                                                 <DetailCard title="Appointment Tracking">
                                                     <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-                                                        <TimelineStep label="Submitted"    active />
+                                                        <TimelineStep label="Submitted"     active />
                                                         <TimelineStep label="Pending Review" active />
                                                         <TimelineStep label={fmtStatus(selected.status)} active />
                                                     </div>
@@ -549,15 +525,13 @@ export default function UserDashboard() {
                                                     )}
                                                 </DetailCard>
 
-                                                {/* Actions — only for active statuses */}
+                                                {/* Actions */}
                                                 {["pending", "accepted", "rescheduled"].includes(selected.status) && (
                                                     <div className="flex flex-col sm:flex-row gap-3">
-                                                        <button type="button" onClick={openRescheduleModal}
-                                                            className="rounded-full bg-black px-6 py-3 text-[10px] font-bold tracking-[0.2em] uppercase text-white hover:opacity-80 transition-all cursor-pointer">
+                                                        <button type="button" onClick={openRescheduleModal} className="rounded-full bg-black px-6 py-3 text-[10px] font-bold tracking-[0.2em] uppercase text-white hover:opacity-80 transition-all cursor-pointer">
                                                             Reschedule
                                                         </button>
-                                                        <button type="button" onClick={handleCancelAppointment}
-                                                            className="rounded-full border border-red-200 bg-red-50 px-6 py-3 text-[10px] font-bold tracking-[0.2em] uppercase text-red-700 hover:bg-red-100 transition-all cursor-pointer">
+                                                        <button type="button" onClick={handleCancelAppointment} className="rounded-full border border-red-200 bg-red-50 px-6 py-3 text-[10px] font-bold tracking-[0.2em] uppercase text-red-700 hover:bg-red-100 transition-all cursor-pointer">
                                                             Cancel
                                                         </button>
                                                     </div>
@@ -574,13 +548,14 @@ export default function UserDashboard() {
                                             </div>
                                             <div className="divide-y divide-neutral-100">
                                                 {appointments.map((item) => (
-                                                    <button key={item.id} type="button" onClick={() => setSelectedId(item.id)}
-                                                        className={`w-full text-left px-6 py-4 transition-colors cursor-pointer ${selectedId === item.id ? "bg-neutral-100" : "hover:bg-neutral-50/60"}`}
-                                                    >
+                                                    <button key={item.id} type="button" onClick={() => setSelectedId(item.id)} className={`w-full text-left px-6 py-4 transition-colors cursor-pointer ${selectedId === item.id ? "bg-neutral-100" : "hover:bg-neutral-50/60"}`}>
                                                         <div className="flex items-start justify-between gap-4">
                                                             <div>
-                                                                <p className="text-sm font-bold text-neutral-900">{item.projectType || "Appointment"}</p>
-                                                                <p className="text-xs font-medium text-neutral-500 mt-1">{fmtDateTime(item.consultationDate)}</p>
+                                                                <div className="flex items-center gap-2 mb-1">
+                                                                    <p className="text-sm font-bold text-neutral-900">{item.projectType || "Appointment"}</p>
+                                                                    <ConsultationTypeBadge type={item.consultationType} small />
+                                                                </div>
+                                                                <p className="text-xs font-medium text-neutral-500">{fmtDateTime(item.consultationDate)}</p>
                                                             </div>
                                                             <span className={`inline-flex items-center rounded-full border px-2.5 py-1 text-[9px] font-bold uppercase tracking-[0.15em] ${statusClasses(item.status)}`}>
                                                                 {fmtStatus(item.status)}
@@ -665,13 +640,32 @@ export default function UserDashboard() {
     );
 }
 
+// ── ConsultationTypeBadge ──────────────────────────────────────────────────
+function ConsultationTypeBadge({ type, small = false }) {
+    const isOnline = String(type || "onsite").toLowerCase() === "online";
+    const base = small
+        ? "inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[9px] font-bold uppercase tracking-wider"
+        : "inline-flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-[10px] font-bold uppercase tracking-[0.15em]";
+
+    return isOnline ? (
+        <span className={`${base} border-blue-200 bg-blue-50 text-blue-700`}>
+            <VideoIcon className={small ? "w-2.5 h-2.5" : "w-3 h-3"} />
+            Online
+        </span>
+    ) : (
+        <span className={`${base} border-neutral-200 bg-neutral-50 text-neutral-600`}>
+            <HomeIcon className={small ? "w-2.5 h-2.5" : "w-3 h-3"} />
+            Onsite
+        </span>
+    );
+}
+
 // ── Sub-components ─────────────────────────────────────────────────────────
 function ModalShell({ children, onClose }) {
     return (
         <div className="fixed inset-0 z-[100] flex items-center justify-center px-4">
             <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={onClose} className="absolute inset-0 bg-black/30" />
-            <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: 12 }} transition={{ duration: 0.25 }}
-                className="relative w-full max-w-[560px] rounded-3xl border border-neutral-200 bg-white p-6 md:p-8 shadow-2xl">
+            <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: 12 }} transition={{ duration: 0.25 }} className="relative w-full max-w-[560px] rounded-3xl border border-neutral-200 bg-white p-6 md:p-8 shadow-2xl">
                 {children}
             </motion.div>
         </div>
@@ -718,8 +712,7 @@ function DashboardInput({ label, type = "text", value, onChange, min }) {
     return (
         <div>
             <label className="block text-[10px] font-bold tracking-[0.15em] text-neutral-400 uppercase mb-3">{label}</label>
-            <input type={type} value={value} onChange={onChange} min={min}
-                className="w-full rounded-xl border border-neutral-200 bg-white px-4 py-3 text-sm text-neutral-900 outline-none focus:border-black transition-colors" />
+            <input type={type} value={value} onChange={onChange} min={min} className="w-full rounded-xl border border-neutral-200 bg-white px-4 py-3 text-sm text-neutral-900 outline-none focus:border-black transition-colors" />
         </div>
     );
 }
@@ -727,13 +720,11 @@ function DashboardSelect({ label, value, onChange, options }) {
     return (
         <div>
             <label className="block text-[10px] font-bold tracking-[0.15em] text-neutral-400 uppercase mb-3">{label}</label>
-            <select value={value} onChange={onChange}
-                className="w-full rounded-xl border border-neutral-200 bg-white px-4 py-3 text-sm text-neutral-900 outline-none focus:border-black transition-colors">
+            <select value={value} onChange={onChange} className="w-full rounded-xl border border-neutral-200 bg-white px-4 py-3 text-sm text-neutral-900 outline-none focus:border-black transition-colors">
                 <option value="">Select {label}</option>
                 {options.map((o) => typeof o === "string"
                     ? <option key={o} value={o}>{o}</option>
-                    : <option key={o.value} value={o.value}>{o.label}</option>
-                )}
+                    : <option key={o.value} value={o.value}>{o.label}</option>)}
             </select>
         </div>
     );
@@ -742,10 +733,20 @@ function DashboardTextarea({ label, value, onChange, rows = 4 }) {
     return (
         <div>
             <label className="block text-[10px] font-bold tracking-[0.15em] text-neutral-400 uppercase mb-3">{label}</label>
-            <textarea rows={rows} value={value} onChange={onChange}
-                className="w-full rounded-xl border border-neutral-200 bg-white px-4 py-3 text-sm text-neutral-900 outline-none resize-none focus:border-black transition-colors" />
+            <textarea rows={rows} value={value} onChange={onChange} className="w-full rounded-xl border border-neutral-200 bg-white px-4 py-3 text-sm text-neutral-900 outline-none resize-none focus:border-black transition-colors" />
         </div>
     );
+}
+
+// ── Icons ──────────────────────────────────────────────────────────────────
+function VideoIcon({ className = "w-4 h-4" }) {
+    return <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" className={className}><polygon points="23 7 16 12 23 17 23 7" /><rect x="1" y="5" width="15" height="14" rx="2" ry="2" /></svg>;
+}
+function HomeIcon({ className = "w-4 h-4" }) {
+    return <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" className={className}><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" /><polyline points="9 22 9 12 15 12 15 22" /></svg>;
+}
+function CopyIcon({ className = "w-4 h-4" }) {
+    return <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" className={className}><rect x="9" y="9" width="13" height="13" rx="2" ry="2" /><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" /></svg>;
 }
 function BellIcon({ className = "w-5 h-5" }) {
     return <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" className={className}><path d="M6.3 8.8a5.7 5.7 0 1 1 11.4 0c0 6.65 2.85 7.6 2.85 7.6H3.45s2.85-.95 2.85-7.6" strokeLinecap="round" strokeLinejoin="round" /><path d="M10 19a2 2 0 0 0 4 0" strokeLinecap="round" /></svg>;
