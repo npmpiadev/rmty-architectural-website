@@ -27,20 +27,19 @@ class ConsultationController extends Controller
         return response()->json($query->get());
     }
 
-<<<<<<< HEAD
     // POST /api/consultations  (client — auto-accepts + sends confirmation email)
     public function store(Request $request): JsonResponse
     {
         $validated = $request->validate([
-            'first_name'        => 'required|string|max:255',
-            'last_name'         => 'required|string|max:255',
-            'email'             => 'required|email|max:255',
-            'phone'             => 'nullable|string|max:30',
-            'project_type'      => 'nullable|string|max:255',
-            'location'          => 'nullable|string|max:255',
-            'consultation_date' => 'nullable|date',
-            'message'           => 'nullable|string',
-            'consultation_type' => 'nullable|string|in:onsite,online',
+            'first_name'          => 'required|string|max:255',
+            'last_name'           => 'required|string|max:255',
+            'email'               => 'required|email|max:255',
+            'phone'               => 'nullable|string|max:30',
+            'project_type'        => 'nullable|string|max:255',
+            'location'            => 'nullable|string|max:255',
+            'consultation_date'   => 'required|date',
+            'message'             => 'nullable|string',
+            'consultation_type'   => 'nullable|string|in:onsite,online',
         ]);
 
         // Default to onsite if not provided
@@ -50,9 +49,7 @@ class ConsultationController extends Controller
 
         $validated['consultation_type'] = $consultationType;
 
-        // The client never submits a zoom_link — the admin sets it globally in settings.
-        // We resolve it server-side and store it on the record so emails and the
-        // dashboard always reflect whatever link the admin has configured.
+        // Resolve zoom link server-side for online consultations
         $zoomLink = null;
         if ($consultationType === 'online') {
             $raw      = \App\Models\Setting::getValue('zoom_link', '');
@@ -74,6 +71,42 @@ class ConsultationController extends Controller
             ], 409);
         }
 
+        $requestedDate = \Carbon\Carbon::parse($validated['consultation_date']);
+
+        // 2-HOUR BUFFER CHECK
+        $existingConsultations = Consultation::whereIn('status', [
+                'pending',
+                'accepted',
+                'rescheduled',
+            ])
+            ->where('is_published', 1)
+            ->whereNotNull('consultation_date')
+            ->get();
+
+        foreach ($existingConsultations as $existing) {
+            $existingDate = \Carbon\Carbon::parse($existing->consultation_date);
+            $endWindow    = $existingDate->copy()->addHours(2);
+
+            if ($requestedDate->between($existingDate, $endWindow->subMinute())) {
+                return response()->json([
+                    'message' => 'This time slot is unavailable because another consultation is already scheduled.',
+                ], 422);
+            }
+        }
+
+        // CHECK ADMIN BLOCKED SLOTS
+        $date    = $requestedDate->format('Y-m-d');
+        $time    = $requestedDate->format('H:i');
+        $blocked = \App\Models\BlockedSlot::where('blocked_date', $date)
+            ->where('blocked_time', $time)
+            ->exists();
+
+        if ($blocked) {
+            return response()->json([
+                'message' => 'This slot has been blocked by the admin.',
+            ], 422);
+        }
+
         $consultation = Consultation::create([
             ...$validated,
             'status'            => 'accepted',
@@ -87,108 +120,13 @@ class ConsultationController extends Controller
         } catch (\Throwable $e) {
             Log::error('BookingConfirmationMail failed: ' . $e->getMessage());
         }
-=======
-  public function store(Request $request): JsonResponse
-{
-    $validated = $request->validate([
-        'first_name'        => 'required|string|max:255',
-        'last_name'         => 'required|string|max:255',
-        'email'             => 'required|email|max:255',
-        'phone'             => 'nullable|string|max:30',
-        'project_type'      => 'nullable|string|max:255',
-        'location'          => 'nullable|string|max:255',
-        'consultation_date' => 'required|date',
-        'message'           => 'nullable|string',
-    ]);
 
-    // USER CAN ONLY HAVE ONE ACTIVE CONSULTATION
-    $ongoing = Consultation::where('email', $validated['email'])
-        ->whereIn('status', ['pending', 'accepted', 'rescheduled'])
-        ->where('is_published', 1)
-        ->first();
->>>>>>> 7f8110979769dfbf47ca9ff4cb0c8a55ae1e263c
-
-    if ($ongoing) {
         return response()->json([
-            'message'      => 'You already have an ongoing consultation.',
-            'has_active'   => true,
-            'consultation' => $ongoing,
-        ], 409);
+            'message'      => 'Consultation submitted successfully.',
+            'data'         => $consultation,
+            'reference_id' => $consultation->reference_id,
+        ], 201);
     }
-
-    $requestedDate = \Carbon\Carbon::parse($validated['consultation_date']);
-
-    // 2-HOUR BUFFER CHECK
-    $existingConsultations = Consultation::whereIn('status', [
-            'pending',
-            'accepted',
-            'rescheduled',
-        ])
-        ->where('is_published', 1)
-        ->whereNotNull('consultation_date')
-        ->get();
-
-    foreach ($existingConsultations as $existing) {
-
-        $existingDate = \Carbon\Carbon::parse(
-            $existing->consultation_date
-        );
-
-        $endWindow = $existingDate->copy()->addHours(2);
-
-        // if requested appointment falls within 2-hour window
-        if (
-            $requestedDate->between(
-                $existingDate,
-                $endWindow->subMinute()
-            )
-        ) {
-            return response()->json([
-                'message' =>
-                    'This time slot is unavailable because another consultation is already scheduled.',
-            ], 422);
-        }
-    }
-
-    // CHECK ADMIN BLOCKED SLOTS
-    $date = $requestedDate->format('Y-m-d');
-    $time = $requestedDate->format('H:i');
-
-    $blocked = \App\Models\BlockedSlot::where(
-        'blocked_date',
-        $date
-    )
-        ->where('blocked_time', $time)
-        ->exists();
-
-    if ($blocked) {
-        return response()->json([
-            'message' => 'This slot has been blocked by the admin.',
-        ], 422);
-    }
-
-    $consultation = Consultation::create([
-        ...$validated,
-        'status'            => 'accepted',
-        'is_published'      => 1,
-        'reschedule_reason' => null,
-    ]);
-
-    try {
-        Mail::to($consultation->email)
-            ->send(new BookingConfirmationMail($consultation));
-    } catch (\Throwable $e) {
-        Log::error(
-            'BookingConfirmationMail failed: ' . $e->getMessage()
-        );
-    }
-
-    return response()->json([
-        'message'      => 'Consultation submitted successfully.',
-        'data'         => $consultation,
-        'reference_id' => $consultation->reference_id,
-    ], 201);
-}
 
     // GET /api/consultations/{id}
     public function show($id): JsonResponse
@@ -211,19 +149,19 @@ class ConsultationController extends Controller
         $consultation = Consultation::findOrFail($id);
 
         $validated = $request->validate([
-            'first_name'        => 'sometimes|string|max:255',
-            'last_name'         => 'sometimes|string|max:255',
-            'email'             => 'sometimes|email|max:255',
-            'phone'             => 'sometimes|nullable|string|max:30',
-            'project_type'      => 'sometimes|nullable|string|max:255',
-            'location'          => 'sometimes|nullable|string|max:255',
-            'consultation_date' => 'sometimes|nullable|date',
-            'message'           => 'sometimes|nullable|string',
-            'status'            => 'sometimes|string|in:pending,accepted,cancelled,rescheduled,archived',
-            'is_published'      => 'sometimes|boolean',
-            'reschedule_reason' => 'sometimes|nullable|string|max:1000',
-            'consultation_type' => 'sometimes|nullable|string|in:onsite,online',
-            'zoom_link'         => 'sometimes|nullable|url|max:500',
+            'first_name'          => 'sometimes|string|max:255',
+            'last_name'           => 'sometimes|string|max:255',
+            'email'               => 'sometimes|email|max:255',
+            'phone'               => 'sometimes|nullable|string|max:30',
+            'project_type'        => 'sometimes|nullable|string|max:255',
+            'location'            => 'sometimes|nullable|string|max:255',
+            'consultation_date'   => 'sometimes|nullable|date',
+            'message'             => 'sometimes|nullable|string',
+            'status'              => 'sometimes|string|in:pending,accepted,cancelled,rescheduled,archived',
+            'is_published'        => 'sometimes|boolean',
+            'reschedule_reason'   => 'sometimes|nullable|string|max:1000',
+            'consultation_type'   => 'sometimes|nullable|string|in:onsite,online',
+            'zoom_link'           => 'sometimes|nullable|url|max:500',
         ]);
 
         // Determine effective consultation type after this update
@@ -232,14 +170,13 @@ class ConsultationController extends Controller
             ?? 'onsite';
 
         if ($effectiveType === 'online') {
-            // If admin didn't explicitly send a zoom_link in this request,
-            // re-resolve it from the global settings
+            // If admin didn't explicitly send a zoom_link, re-resolve from global settings
             if (!array_key_exists('zoom_link', $validated)) {
                 $raw = \App\Models\Setting::getValue('zoom_link', '');
                 $validated['zoom_link'] = (is_string($raw) && $raw !== '') ? $raw : null;
             }
         } else {
-            // Not online — ensure zoom_link is cleared
+            // Not online — clear zoom_link
             $validated['zoom_link'] = null;
         }
 
@@ -300,6 +237,14 @@ class ConsultationController extends Controller
             ], 422);
         }
 
+        /*
+        |--------------------------------------------------------------------------
+        | Manual Bell Reminder
+        |--------------------------------------------------------------------------
+        | Allows the admin to manually send an SMS reminder by clicking the bell.
+        | Does not require another "Accept" action — the consultation may already
+        | be accepted/confirmed through email or the system flow.
+        */
         $allowedStatuses = ['accepted', 'rescheduled', 'pending'];
 
         if (!in_array(strtolower((string) $consultation->status), $allowedStatuses, true)) {
